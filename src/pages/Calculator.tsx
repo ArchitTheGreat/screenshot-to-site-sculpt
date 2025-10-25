@@ -27,13 +27,14 @@ const Calculator = () => {
   const [txCount, setTxCount] = useState(0);
 
   useEffect(() => {
-    if (searchParams.get('paymentsuccess') === 'true') {
+    if (searchParams.get('paymentsuccess') === 'true' && address && fromDate && toDate) {
       toast({
         title: "Payment Successful!",
         description: "Your tax report is being generated...",
       });
+      calculateTax();
     }
-  }, [searchParams]);
+  }, [searchParams, address, fromDate, toDate]);
 
   const calculateTax = async () => {
     if (!address || !fromDate || !toDate) {
@@ -223,23 +224,49 @@ const Calculator = () => {
               </div>
             </div>
 
-            <Button
-              onClick={calculateTax}
-              className="w-full"
-              size="lg"
-              disabled={!isConnected || !fromDate || !toDate || loading}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Fetching Transactions...
-                </>
-              ) : (
-                'Calculate Tax'
-              )}
-            </Button>
+            {calculatedTax === null && !loading && (
+              <>
+                <Separator />
+                <div className="space-y-4">
+                  <p className="text-center text-muted-foreground">
+                    Complete payment to generate your comprehensive tax report
+                  </p>
+                  <a 
+                    href="https://nowpayments.io/payment/?iid=4461490785&source=button" 
+                    target="_blank" 
+                    rel="noreferrer noopener"
+                    className="block"
+                  >
+                    <Button
+                      size="lg"
+                      className="w-full bg-foreground text-background hover:bg-foreground/90 gap-2"
+                      disabled={!isConnected || !fromDate || !toDate}
+                    >
+                      <img 
+                        src="https://nowpayments.io/images/embeds/payment-button-white.svg" 
+                        alt="Crypto Payment" 
+                        className="h-5 w-5 invert"
+                      />
+                      Pay with Crypto & Generate Report
+                    </Button>
+                  </a>
+                </div>
+              </>
+            )}
 
-            {calculatedTax !== null && (
+            {loading && (
+              <>
+                <Separator />
+                <div className="bg-accent/10 p-6 rounded-lg text-center space-y-2">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-accent" />
+                  <p className="text-sm text-muted-foreground">
+                    Generating your tax report...
+                  </p>
+                </div>
+              </>
+            )}
+
+            {calculatedTax !== null && !loading && (
               <>
                 <Separator />
                 <div className="bg-accent/10 p-6 rounded-lg text-center space-y-2">
@@ -258,35 +285,6 @@ const Calculator = () => {
           </div>
         </Card>
 
-        {/* Payment Section */}
-        {calculatedTax !== null && (
-          <Card className="p-6 sm:p-8">
-            <h2 className="font-serif text-fluid-2xl font-semibold mb-4">
-              Generate Tax Report
-            </h2>
-            <p className="text-muted-foreground mb-6">
-              Get a comprehensive tax report with all your transactions and calculations
-            </p>
-            <a 
-              href="https://nowpayments.io/payment/?iid=4461490785&source=button" 
-              target="_blank" 
-              rel="noreferrer noopener"
-              className="block"
-            >
-              <Button
-                size="lg"
-                className="w-full bg-foreground text-background hover:bg-foreground/90 gap-2"
-              >
-                <img 
-                  src="https://nowpayments.io/images/embeds/payment-button-white.svg" 
-                  alt="Crypto Payment" 
-                  className="h-5 w-5 invert"
-                />
-                Pay with Crypto & Download Report
-              </Button>
-            </a>
-          </Card>
-        )}
       </div>
     </div>
   );
