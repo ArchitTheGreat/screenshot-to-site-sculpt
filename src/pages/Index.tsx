@@ -7,8 +7,8 @@ const Index = () => {
         <div className="flex flex-col items-center text-center space-y-8 sm:space-y-12 md:space-y-16 lg:space-y-20">
           {/* Logo */}
           <div className="relative">
-            <h1 className="font-serif text-fluid-5xl sm:text-fluid-6xl font-normal tracking-tight text-foreground">
-              Krypto
+            <h1 className="font-serif text-fluid-6xl sm:text-[clamp(4rem,3rem+8vw,7rem)] font-bold tracking-tight text-foreground">
+              KryptoGain
             </h1>
             <div className="absolute -bottom-2 sm:-bottom-3 left-0 right-0 h-1 sm:h-1.5 bg-accent"></div>
           </div>
