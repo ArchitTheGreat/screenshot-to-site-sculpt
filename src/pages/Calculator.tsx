@@ -1,33 +1,93 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wallet } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Wallet, CalendarIcon, Loader2 } from 'lucide-react';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 const Calculator = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
 
-  const [transactions, setTransactions] = useState('');
-  const [purchasePrice, setPurchasePrice] = useState('');
-  const [salePrice, setSalePrice] = useState('');
+  const [blockchain, setBlockchain] = useState<'ethereum' | 'polygon'>('ethereum');
+  const [fromDate, setFromDate] = useState<Date>();
+  const [toDate, setToDate] = useState<Date>();
   const [calculatedTax, setCalculatedTax] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [txCount, setTxCount] = useState(0);
 
-  const calculateTax = () => {
-    const purchase = parseFloat(purchasePrice);
-    const sale = parseFloat(salePrice);
-    const txCount = parseInt(transactions);
+  useEffect(() => {
+    if (searchParams.get('paymentsuccess') === 'true') {
+      toast({
+        title: "Payment Successful!",
+        description: "Your tax report is being generated...",
+      });
+    }
+  }, [searchParams]);
 
-    if (!isNaN(purchase) && !isNaN(sale) && !isNaN(txCount)) {
-      const gain = (sale - purchase) * txCount;
-      const tax = gain * 0.25; // 25% tax rate (simplified)
-      setCalculatedTax(tax);
+  const calculateTax = async () => {
+    if (!address || !fromDate || !toDate) {
+      toast({
+        title: "Missing Information",
+        description: "Please connect wallet and select date range",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const apiKey = blockchain === 'ethereum' 
+        ? 'YourEtherscanAPIKey' 
+        : 'YourPolygonscanAPIKey';
+      
+      const apiUrl = blockchain === 'ethereum'
+        ? `https://api.etherscan.io/api`
+        : `https://api.polygonscan.com/api`;
+
+      const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
+      const toTimestamp = Math.floor(toDate.getTime() / 1000);
+
+      const response = await fetch(
+        `${apiUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
+      );
+
+      const data = await response.json();
+      
+      if (data.status === '1' && data.result) {
+        const filteredTxs = data.result.filter((tx: any) => {
+          const txTimestamp = parseInt(tx.timeStamp);
+          return txTimestamp >= fromTimestamp && txTimestamp <= toTimestamp;
+        });
+
+        setTxCount(filteredTxs.length);
+        
+        // Simplified tax calculation (25% on estimated gains)
+        const totalValue = filteredTxs.reduce((acc: number, tx: any) => {
+          return acc + parseFloat(tx.value) / 1e18;
+        }, 0);
+        
+        const estimatedTax = totalValue * 0.25;
+        setCalculatedTax(estimatedTax);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch transaction data",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -95,53 +155,98 @@ const Calculator = () => {
           </h2>
 
           <div className="space-y-6">
+            {/* Blockchain Toggle */}
             <div className="space-y-2">
-              <Label htmlFor="transactions">Number of Transactions</Label>
-              <Input
-                id="transactions"
-                type="number"
-                placeholder="Enter number of transactions"
-                value={transactions}
-                onChange={(e) => setTransactions(e.target.value)}
-              />
+              <label className="text-sm font-medium">Select Blockchain</label>
+              <Tabs value={blockchain} onValueChange={(v) => setBlockchain(v as 'ethereum' | 'polygon')} className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="ethereum">Ethereum</TabsTrigger>
+                  <TabsTrigger value="polygon">Polygon</TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="purchase">Average Purchase Price (USD)</Label>
-              <Input
-                id="purchase"
-                type="number"
-                placeholder="Enter average purchase price"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-              />
-            </div>
+            {/* Date Range Selection */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">From Date</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !fromDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {fromDate ? format(fromDate, "PPP") : "Select date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={fromDate}
+                      onSelect={setFromDate}
+                      initialFocus
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="sale">Average Sale Price (USD)</Label>
-              <Input
-                id="sale"
-                type="number"
-                placeholder="Enter average sale price"
-                value={salePrice}
-                onChange={(e) => setSalePrice(e.target.value)}
-              />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">To Date</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !toDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {toDate ? format(toDate, "PPP") : "Select date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={toDate}
+                      onSelect={setToDate}
+                      initialFocus
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
             <Button
               onClick={calculateTax}
               className="w-full"
               size="lg"
-              disabled={!transactions || !purchasePrice || !salePrice}
+              disabled={!isConnected || !fromDate || !toDate || loading}
             >
-              Calculate Tax
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Fetching Transactions...
+                </>
+              ) : (
+                'Calculate Tax'
+              )}
             </Button>
 
             {calculatedTax !== null && (
               <>
                 <Separator />
-                <div className="bg-accent/10 p-6 rounded-lg text-center">
-                  <p className="text-sm text-muted-foreground mb-2">
+                <div className="bg-accent/10 p-6 rounded-lg text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Transactions Found: {txCount}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
                     Estimated Tax Liability
                   </p>
                   <p className="font-serif text-fluid-3xl font-bold text-accent">
@@ -162,12 +267,24 @@ const Calculator = () => {
             <p className="text-muted-foreground mb-6">
               Get a comprehensive tax report with all your transactions and calculations
             </p>
-            <Button
-              size="lg"
-              className="w-full bg-foreground text-background hover:bg-foreground/90"
+            <a 
+              href="https://nowpayments.io/payment/?iid=4461490785&source=button" 
+              target="_blank" 
+              rel="noreferrer noopener"
+              className="block"
             >
-              Pay & Download Report - $49.99
-            </Button>
+              <Button
+                size="lg"
+                className="w-full bg-foreground text-background hover:bg-foreground/90 gap-2"
+              >
+                <img 
+                  src="https://nowpayments.io/images/embeds/payment-button-white.svg" 
+                  alt="Crypto Payment" 
+                  className="h-5 w-5 invert"
+                />
+                Pay with Crypto & Download Report
+              </Button>
+            </a>
           </Card>
         )}
       </div>
