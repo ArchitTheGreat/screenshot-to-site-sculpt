@@ -6,15 +6,14 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Wallet, CalendarIcon, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Wallet, CalendarIcon, Loader2, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
 const Calculator = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
@@ -25,32 +24,105 @@ const Calculator = () => {
   const [calculatedTax, setCalculatedTax] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [txCount, setTxCount] = useState(0);
+  const [paymentPending, setPaymentPending] = useState(false);
+  const [sessionId, setSessionId] = useState<string>('');
 
+  // Check for pending payment on mount
   useEffect(() => {
-    if (searchParams.get('paymentsuccess') === 'true' && address && fromDate && toDate) {
-      toast({
-        title: "Payment Successful!",
-        description: "Your tax report is being generated...",
-      });
-      calculateTax();
+    const pendingSession = localStorage.getItem('pendingPayment');
+    if (pendingSession) {
+      const session = JSON.parse(pendingSession);
+      setSessionId(session.id);
+      setPaymentPending(true);
+      startPaymentPolling(session.id);
     }
-  }, [searchParams, address, fromDate, toDate]);
+  }, []);
 
-  const calculateTax = async () => {
+  const startPaymentPolling = (sid: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch('/.netlify/functions/check-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sid })
+        });
+
+        const data = await response.json();
+
+        if (data.confirmed) {
+          clearInterval(pollInterval);
+          localStorage.removeItem('pendingPayment');
+          setPaymentPending(false);
+          toast({
+            title: "Payment Confirmed!",
+            description: "Generating your tax report...",
+          });
+          await calculateTax();
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 5000); // Check every 5 seconds
+
+    // Stop after 30 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (paymentPending) {
+        toast({
+          title: "Payment Timeout",
+          description: "Please contact support if you completed payment",
+          variant: "destructive",
+        });
+      }
+    }, 1800000);
+  };
+
+  const handlePayment = () => {
     if (!address || !fromDate || !toDate) {
       toast({
         title: "Missing Information",
-        description: "Please connect wallet and select date range",
+        description: "Please connect wallet and select dates",
         variant: "destructive",
       });
       return;
     }
 
+    // Generate unique session ID
+    const sid = `${address.slice(0, 8)}-${Date.now()}`;
+    setSessionId(sid);
+
+    // Store session
+    localStorage.setItem('pendingPayment', JSON.stringify({
+      id: sid,
+      address,
+      blockchain,
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      timestamp: Date.now()
+    }));
+
+    // Open payment page
+    const paymentUrl = `https://nowpayments.io/payment/?iid=4461490785&order_id=${sid}`;
+    window.open(paymentUrl, '_blank');
+
+    setPaymentPending(true);
+    toast({
+      title: "Payment Window Opened",
+      description: "Complete payment in the new tab. We'll automatically detect it.",
+    });
+
+    // Start polling
+    startPaymentPolling(sid);
+  };
+
+  const calculateTax = async () => {
+    if (!address || !fromDate || !toDate) return;
+
     setLoading(true);
     try {
       const apiKey = blockchain === 'ethereum' 
-        ? 'YourEtherscanAPIKey' 
-        : 'YourPolygonscanAPIKey';
+        ? process.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
+        : process.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
       const apiUrl = blockchain === 'ethereum'
         ? `https://api.etherscan.io/api`
@@ -73,12 +145,22 @@ const Calculator = () => {
 
         setTxCount(filteredTxs.length);
         
-        // Simplified tax calculation (25% on estimated gains)
-        const totalValue = filteredTxs.reduce((acc: number, tx: any) => {
-          return acc + parseFloat(tx.value) / 1e18;
-        }, 0);
+        // Calculate sent vs received
+        let totalSent = 0;
+        let totalReceived = 0;
         
-        const estimatedTax = totalValue * 0.25;
+        filteredTxs.forEach((tx: any) => {
+          const value = parseFloat(tx.value) / 1e18;
+          if (tx.from.toLowerCase() === address.toLowerCase()) {
+            totalSent += value;
+          } else {
+            totalReceived += value;
+          }
+        });
+        
+        const netGain = totalReceived - totalSent;
+        const estimatedTax = netGain > 0 ? netGain * 0.30 : 0; // 30% Indian crypto tax
+        
         setCalculatedTax(estimatedTax);
       }
     } catch (error) {
@@ -224,36 +306,43 @@ const Calculator = () => {
               </div>
             </div>
 
-            {calculatedTax === null && !loading && (
+            {/* Payment Status */}
+            {paymentPending && (
+              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  <div>
+                    <p className="font-medium text-blue-900 dark:text-blue-100">
+                      Waiting for payment confirmation...
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Complete payment in the opened tab. We'll detect it automatically.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {calculatedTax !== null && !loading && (
               <>
                 <Separator />
-                <div className="space-y-4">
-                  <p className="text-center text-muted-foreground">
-                    Complete payment to generate your comprehensive tax report
+                <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-6 text-center space-y-2">
+                  <CheckCircle2 className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    Transactions Found: {txCount}
                   </p>
-                  <a 
-                    href="https://nowpayments.io/payment/?iid=4461490785&source=button" 
-                    target="_blank" 
-                    rel="noreferrer noopener"
-                    className="block"
-                  >
-                    <Button
-                      size="lg"
-                      className="w-full bg-foreground text-background hover:bg-foreground/90 gap-2"
-                      disabled={!isConnected || !fromDate || !toDate}
-                    >
-                      <img 
-                        src="https://nowpayments.io/images/embeds/payment-button-white.svg" 
-                        alt="Crypto Payment" 
-                        className="h-5 w-5 invert"
-                      />
-                      Pay with Crypto & Generate Report
-                    </Button>
-                  </a>
+                  <p className="text-sm text-muted-foreground">
+                    Estimated Tax Liability (30%)
+                  </p>
+                  <p className="font-serif text-fluid-3xl font-bold text-green-600">
+                    ${calculatedTax.toFixed(2)}
+                  </p>
                 </div>
               </>
             )}
 
+            {/* Loading */}
             {loading && (
               <>
                 <Separator />
@@ -266,20 +355,18 @@ const Calculator = () => {
               </>
             )}
 
-            {calculatedTax !== null && !loading && (
+            {/* Payment Button */}
+            {calculatedTax === null && !loading && !paymentPending && (
               <>
                 <Separator />
-                <div className="bg-accent/10 p-6 rounded-lg text-center space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Transactions Found: {txCount}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Estimated Tax Liability
-                  </p>
-                  <p className="font-serif text-fluid-3xl font-bold text-accent">
-                    ${calculatedTax.toFixed(2)}
-                  </p>
-                </div>
+                <Button
+                  size="lg"
+                  className="w-full bg-foreground text-background hover:bg-foreground/90"
+                  disabled={!isConnected || !fromDate || !toDate}
+                  onClick={handlePayment}
+                >
+                  Pay $15 with Crypto & Generate Report
+                </Button>
               </>
             )}
           </div>
