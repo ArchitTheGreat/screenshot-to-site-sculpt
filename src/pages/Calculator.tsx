@@ -6,6 +6,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Wallet, CalendarIcon, Loader2, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -25,9 +26,17 @@ const Calculator = () => {
   const [calculatedTax, setCalculatedTax] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [txCount, setTxCount] = useState(0);
+  const [walletAddress, setWalletAddress] = useState<string>('');
 
-  const generatePDFInBrowser = (taxAmount: number, transactions: number) => {
-    console.log('generatePDFInBrowser called with:', { taxAmount, transactions, address, blockchain, fromDate, toDate });
+  useEffect(() => {
+    if (isConnected && address) {
+      setWalletAddress(address);
+    }
+  }, [isConnected, address]);
+
+  const generatePDFInBrowser = (taxAmount: number, transactions: number, effectiveAddress?: string) => {
+    const addr = effectiveAddress || walletAddress || address || 'N/A';
+    console.log('generatePDFInBrowser called with:', { taxAmount, transactions, addr, blockchain, fromDate, toDate });
     const doc = new jsPDF();
     
     // Header
@@ -35,7 +44,7 @@ const Calculator = () => {
     doc.text('KryptoGain Tax Report', 20, 20);
     
     doc.setFontSize(12);
-    doc.text(`Wallet: ${address}`, 20, 35);
+    doc.text(`Wallet: ${addr}`, 20, 35);
     doc.text(`Blockchain: ${blockchain.charAt(0).toUpperCase() + blockchain.slice(1)}`, 20, 45);
     doc.text(`Period: ${format(fromDate!, 'PPP')} - ${format(toDate!, 'PPP')}`, 20, 55);
     
@@ -53,7 +62,7 @@ const Calculator = () => {
     doc.text('Full transaction history available on-chain', 20, 125);
     
     // Download
-    doc.save(`kryptogain-tax-report-${address?.slice(0, 8)}.pdf`);
+    doc.save(`kryptogain-tax-report-${addr.slice(0, 8)}.pdf`);
     
     toast({
       title: "PDF Generated!",
@@ -62,17 +71,18 @@ const Calculator = () => {
   };
 
   const calculateTax = async () => {
-    if (!address || !fromDate || !toDate) {
-      console.log('Missing required data:', { address, fromDate, toDate });
+    const effectiveAddress = (walletAddress || address || '').toString();
+    if (!effectiveAddress || !fromDate || !toDate) {
+      console.log('Missing required data:', { effectiveAddress, fromDate, toDate });
       toast({
         title: "Missing Information",
-        description: "Please connect wallet and select dates",
+        description: "Please enter a wallet address and select dates",
         variant: "destructive",
       });
       return;
     }
 
-    console.log('Starting tax calculation...');
+    console.log('Starting tax calculation for', effectiveAddress);
     setLoading(true);
     try {
       const apiKey = blockchain === 'ethereum' 
@@ -86,9 +96,9 @@ const Calculator = () => {
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
 
-      console.log('Fetching transactions from:', apiUrl);
+      console.log('Fetching transactions from:', apiUrl, 'for address:', effectiveAddress);
       const response = await fetch(
-        `${apiUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
+        `${apiUrl}?module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
       );
 
       const data = await response.json();
@@ -108,7 +118,7 @@ const Calculator = () => {
         
         filteredTxs.forEach((tx: any) => {
           const value = parseFloat(tx.value) / 1e18;
-          if (tx.from.toLowerCase() === address.toLowerCase()) {
+          if (tx.from.toLowerCase() === effectiveAddress.toLowerCase()) {
             totalSent += value;
           } else {
             totalReceived += value;
@@ -123,9 +133,10 @@ const Calculator = () => {
         
         // Generate PDF automatically
         console.log('Generating PDF...');
-        generatePDFInBrowser(estimatedTax, filteredTxs.length);
+        generatePDFInBrowser(estimatedTax, filteredTxs.length, effectiveAddress);
       } else {
         console.log('No transactions found or API error:', data);
+        generatePDFInBrowser(0, 0, effectiveAddress);
         toast({
           title: "No Transactions",
           description: "No transactions found for this period",
@@ -133,6 +144,8 @@ const Calculator = () => {
         });
       }
     } catch (error) {
+      console.error('Error while fetching transactions:', error);
+      generatePDFInBrowser(0, 0, effectiveAddress);
       toast({
         title: "Error",
         description: "Failed to fetch transaction data",
@@ -197,6 +210,18 @@ const Calculator = () => {
                 Disconnect
               </Button>
             )}
+          </div>
+
+          <div className="mt-4 w-full">
+            <label className="text-sm font-medium">Wallet address (optional)</label>
+            <Input
+              placeholder="0x..."
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value.trim())}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Paste any address to generate without connecting.
+            </p>
           </div>
         </Card>
 
@@ -315,7 +340,7 @@ const Calculator = () => {
                 <Button
                   size="lg"
                   className="w-full bg-foreground text-background hover:bg-foreground/90"
-                  disabled={!isConnected || !fromDate || !toDate}
+                  disabled={!((address || walletAddress) && fromDate && toDate)}
                   onClick={calculateTax}
                 >
                   Generate Tax Report
