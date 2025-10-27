@@ -89,16 +89,15 @@ const Calculator = () => {
         ? import.meta.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
         : import.meta.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
-      const apiUrl = blockchain === 'ethereum'
-        ? `https://api.etherscan.io/api`
-        : `https://api.polygonscan.com/api`;
+      const chainId = blockchain === 'ethereum' ? '1' : '137';
+      const apiUrl = `https://api.etherscan.io/v2/api`;
 
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
 
       console.log('Fetching transactions from:', apiUrl, 'for address:', effectiveAddress);
       const response = await fetch(
-        `${apiUrl}?module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
+        `${apiUrl}?chainid=${chainId}&module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
       );
 
       const data = await response.json();
