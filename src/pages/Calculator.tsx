@@ -90,8 +90,8 @@ const Calculator = () => {
         : import.meta.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
       const apiUrl = blockchain === 'ethereum'
-        ? `https://api.etherscan.io/api`
-        : `https://api.polygonscan.com/api`;
+        ? `https://api.etherscan.io/api/v2`
+        : `https://api.etherscan.io/api/v2`; // PolygonScan uses same base URL structure
 
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
