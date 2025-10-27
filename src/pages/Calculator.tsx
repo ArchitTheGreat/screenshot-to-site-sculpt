@@ -24,96 +24,6 @@ const Calculator = () => {
   const [calculatedTax, setCalculatedTax] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [txCount, setTxCount] = useState(0);
-  const [paymentPending, setPaymentPending] = useState(false);
-  const [sessionId, setSessionId] = useState<string>('');
-
-  // Check for pending payment on mount
-  useEffect(() => {
-    const pendingSession = localStorage.getItem('pendingPayment');
-    if (pendingSession) {
-      const session = JSON.parse(pendingSession);
-      setSessionId(session.id);
-      setPaymentPending(true);
-      startPaymentPolling(session.id);
-    }
-  }, []);
-
-  const startPaymentPolling = (sid: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch('/.netlify/functions/check-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: sid })
-        });
-
-        const data = await response.json();
-
-        if (data.confirmed) {
-          clearInterval(pollInterval);
-          localStorage.removeItem('pendingPayment');
-          setPaymentPending(false);
-          toast({
-            title: "Payment Confirmed!",
-            description: "Generating your tax report...",
-          });
-          await calculateTax();
-        }
-      } catch (error) {
-        console.error('Polling error:', error);
-      }
-    }, 5000); // Check every 5 seconds
-
-    // Stop after 30 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      if (paymentPending) {
-        toast({
-          title: "Payment Timeout",
-          description: "Please contact support if you completed payment",
-          variant: "destructive",
-        });
-      }
-    }, 1800000);
-  };
-
-  const handlePayment = () => {
-    if (!address || !fromDate || !toDate) {
-      toast({
-        title: "Missing Information",
-        description: "Please connect wallet and select dates",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Generate unique session ID
-    const sid = `${address.slice(0, 8)}-${Date.now()}`;
-    setSessionId(sid);
-
-    // Store session
-    localStorage.setItem('pendingPayment', JSON.stringify({
-      id: sid,
-      address,
-      blockchain,
-      fromDate: fromDate.toISOString(),
-      toDate: toDate.toISOString(),
-      timestamp: Date.now()
-    }));
-
-    // Open payment page
-    const paymentUrl = `https://nowpayments.io/payment/?iid=4461490785&order_id=${sid}`;
-    window.open(paymentUrl, '_blank');
-
-    setPaymentPending(true);
-    toast({
-      title: "Payment Window Opened",
-      description: "Complete payment in the new tab. We'll automatically detect it.",
-    });
-
-    // Start polling
-    startPaymentPolling(sid);
-  };
 
   const calculateTax = async () => {
     if (!address || !fromDate || !toDate) return;
@@ -306,22 +216,6 @@ const Calculator = () => {
               </div>
             </div>
 
-            {/* Payment Status */}
-            {paymentPending && (
-              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                  <div>
-                    <p className="font-medium text-blue-900 dark:text-blue-100">
-                      Waiting for payment confirmation...
-                    </p>
-                    <p className="text-sm text-blue-700 dark:text-blue-300">
-                      Complete payment in the opened tab. We'll detect it automatically.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Results */}
             {calculatedTax !== null && !loading && (
@@ -355,17 +249,17 @@ const Calculator = () => {
               </>
             )}
 
-            {/* Payment Button */}
-            {calculatedTax === null && !loading && !paymentPending && (
+            {/* Generate Report Button */}
+            {calculatedTax === null && !loading && (
               <>
                 <Separator />
                 <Button
                   size="lg"
                   className="w-full bg-foreground text-background hover:bg-foreground/90"
                   disabled={!isConnected || !fromDate || !toDate}
-                  onClick={handlePayment}
+                  onClick={calculateTax}
                 >
-                  Pay $15 with Crypto & Generate Report
+                  Generate Tax Report
                 </Button>
               </>
             )}
