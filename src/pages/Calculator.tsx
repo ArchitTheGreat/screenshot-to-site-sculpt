@@ -27,6 +27,7 @@ const Calculator = () => {
   const [txCount, setTxCount] = useState(0);
 
   const generatePDFInBrowser = (taxAmount: number, transactions: number) => {
+    console.log('generatePDFInBrowser called with:', { taxAmount, transactions, address, blockchain, fromDate, toDate });
     const doc = new jsPDF();
     
     // Header
@@ -61,13 +62,22 @@ const Calculator = () => {
   };
 
   const calculateTax = async () => {
-    if (!address || !fromDate || !toDate) return;
+    if (!address || !fromDate || !toDate) {
+      console.log('Missing required data:', { address, fromDate, toDate });
+      toast({
+        title: "Missing Information",
+        description: "Please connect wallet and select dates",
+        variant: "destructive",
+      });
+      return;
+    }
 
+    console.log('Starting tax calculation...');
     setLoading(true);
     try {
       const apiKey = blockchain === 'ethereum' 
-        ? process.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
-        : process.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
+        ? import.meta.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
+        : import.meta.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
       const apiUrl = blockchain === 'ethereum'
         ? `https://api.etherscan.io/api`
@@ -76,11 +86,13 @@ const Calculator = () => {
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
 
+      console.log('Fetching transactions from:', apiUrl);
       const response = await fetch(
         `${apiUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
       );
 
       const data = await response.json();
+      console.log('API Response:', data);
       
       if (data.status === '1' && data.result) {
         const filteredTxs = data.result.filter((tx: any) => {
@@ -106,10 +118,19 @@ const Calculator = () => {
         const netGain = totalReceived - totalSent;
         const estimatedTax = netGain > 0 ? netGain * 0.30 : 0; // 30% Indian crypto tax
         
+        console.log('Tax calculated:', { totalSent, totalReceived, netGain, estimatedTax, txCount: filteredTxs.length });
         setCalculatedTax(estimatedTax);
         
         // Generate PDF automatically
+        console.log('Generating PDF...');
         generatePDFInBrowser(estimatedTax, filteredTxs.length);
+      } else {
+        console.log('No transactions found or API error:', data);
+        toast({
+          title: "No Transactions",
+          description: "No transactions found for this period",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       toast({
