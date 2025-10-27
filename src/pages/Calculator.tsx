@@ -11,6 +11,7 @@ import { ArrowLeft, Wallet, CalendarIcon, Loader2, CheckCircle2 } from 'lucide-r
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import jsPDF from 'jspdf';
 
 const Calculator = () => {
   const navigate = useNavigate();
@@ -24,6 +25,40 @@ const Calculator = () => {
   const [calculatedTax, setCalculatedTax] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [txCount, setTxCount] = useState(0);
+
+  const generatePDFInBrowser = (taxAmount: number, transactions: number) => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.text('KryptoGain Tax Report', 20, 20);
+    
+    doc.setFontSize(12);
+    doc.text(`Wallet: ${address}`, 20, 35);
+    doc.text(`Blockchain: ${blockchain.charAt(0).toUpperCase() + blockchain.slice(1)}`, 20, 45);
+    doc.text(`Period: ${format(fromDate!, 'PPP')} - ${format(toDate!, 'PPP')}`, 20, 55);
+    
+    // Summary
+    doc.setFontSize(16);
+    doc.text('Tax Summary', 20, 75);
+    doc.setFontSize(12);
+    doc.text(`Total Transactions: ${transactions}`, 20, 85);
+    doc.text(`Estimated Tax (30%): $${taxAmount.toFixed(2)}`, 20, 95);
+    
+    // Transaction details
+    doc.setFontSize(14);
+    doc.text('Transaction Details', 20, 115);
+    doc.setFontSize(10);
+    doc.text('Full transaction history available on-chain', 20, 125);
+    
+    // Download
+    doc.save(`kryptogain-tax-report-${address?.slice(0, 8)}.pdf`);
+    
+    toast({
+      title: "PDF Generated!",
+      description: "Your tax report has been downloaded.",
+    });
+  };
 
   const calculateTax = async () => {
     if (!address || !fromDate || !toDate) return;
@@ -72,6 +107,9 @@ const Calculator = () => {
         const estimatedTax = netGain > 0 ? netGain * 0.30 : 0; // 30% Indian crypto tax
         
         setCalculatedTax(estimatedTax);
+        
+        // Generate PDF automatically
+        generatePDFInBrowser(estimatedTax, filteredTxs.length);
       }
     } catch (error) {
       toast({
