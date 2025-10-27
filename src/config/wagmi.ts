@@ -8,7 +8,7 @@ export const config = createConfig({
     injected(),
     metaMask(),
     walletConnect({ 
-      projectId: 'your_project_id_here' // Replace with your WalletConnect project ID
+      projectId: '4f3c78f8891c0e7d5a3bd74ec76dfdf2'
     }),
   ],
   transports: {
