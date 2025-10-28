@@ -70,6 +70,59 @@ const Calculator = () => {
     });
   };
 
+  const initiatePayment = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/.netlify/functions/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: 10,
+          currency: 'usd',
+          orderId: `tax-report-${Date.now()}`
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.invoice_url) {
+        window.open(data.invoice_url, '_blank');
+        
+        // Poll for payment confirmation
+        const paymentId = data.payment_id;
+        const checkInterval = setInterval(async () => {
+          const checkResponse = await fetch('/.netlify/functions/check-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: paymentId })
+          });
+          
+          const checkData = await checkResponse.json();
+          
+          if (checkData.confirmed) {
+            clearInterval(checkInterval);
+            toast({
+              title: "Payment Confirmed!",
+              description: "Generating your tax report...",
+            });
+            await calculateTax();
+          }
+        }, 3000);
+
+        // Stop checking after 10 minutes
+        setTimeout(() => clearInterval(checkInterval), 600000);
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast({
+        title: "Payment Failed",
+        description: "Please try again",
+        variant: "destructive",
+      });
+      setLoading(false);
+    }
+  };
+
   const calculateTax = async () => {
     const effectiveAddress = (walletAddress || address || '').toString();
     if (!effectiveAddress || !fromDate || !toDate) {
@@ -89,16 +142,17 @@ const Calculator = () => {
         ? import.meta.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
         : import.meta.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
+      // Etherscan v2 API with chainid parameter
       const apiUrl = blockchain === 'ethereum'
-        ? `https://api.etherscan.io/api/v2`
-        : `https://api.etherscan.io/api/v2`; // PolygonScan uses same base URL structure
+        ? `https://api.etherscan.io/v2/api?chainid=1`
+        : `https://api.polygonscan.com/api`; // Polygon still uses v1 format
 
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
 
       console.log('Fetching transactions from:', apiUrl, 'for address:', effectiveAddress);
       const response = await fetch(
-        `${apiUrl}?module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
+        `${apiUrl}&module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
       );
 
       const data = await response.json();
@@ -341,9 +395,9 @@ const Calculator = () => {
                   size="lg"
                   className="w-full bg-foreground text-background hover:bg-foreground/90"
                   disabled={!((address || walletAddress) && fromDate && toDate)}
-                  onClick={calculateTax}
+                  onClick={initiatePayment}
                 >
-                  Generate Tax Report
+                  Generate Tax Report ($10)
                 </Button>
               </>
             )}
