@@ -83,6 +83,17 @@ const Calculator = () => {
       return;
     }
 
+    // Validate date range is not in the future
+    const now = new Date();
+    if (fromDate > now || toDate > now) {
+      toast({
+        title: "Invalid Date Range",
+        description: "Please select dates from the past, not the future",
+        variant: "destructive",
+      });
+      return;
+    }
+
     console.log('Starting tax calculation for', effectiveAddress);
     setLoading(true);
     try {
@@ -106,7 +117,7 @@ const Calculator = () => {
       const data = await response.json();
       console.log('API Response:', data);
       
-      if (data.status === '1' && data.result) {
+      if (data.status === '1' && data.result && Array.isArray(data.result)) {
         const filteredTxs = data.result.filter((tx: any) => {
           const txTimestamp = parseInt(tx.timeStamp);
           return txTimestamp >= fromTimestamp && txTimestamp <= toTimestamp;
@@ -114,43 +125,81 @@ const Calculator = () => {
 
         setTxCount(filteredTxs.length);
         
-        // Calculate sent vs received
+        // Improved calculation: properly distinguish sent vs received
         let totalSent = 0;
         let totalReceived = 0;
+        let gasFeesSpent = 0;
         
         filteredTxs.forEach((tx: any) => {
-          const value = parseFloat(tx.value) / 1e18;
-          if (tx.from.toLowerCase() === effectiveAddress.toLowerCase()) {
+          const value = parseFloat(tx.value) / 1e18; // Convert from Wei to ETH/MATIC
+          const addressLower = effectiveAddress.toLowerCase();
+          
+          // If user is the sender
+          if (tx.from.toLowerCase() === addressLower) {
             totalSent += value;
-          } else {
+            // Add gas fees for sent transactions
+            const gasUsed = parseFloat(tx.gasUsed || 0);
+            const gasPrice = parseFloat(tx.gasPrice || 0);
+            gasFeesSpent += (gasUsed * gasPrice) / 1e18;
+          }
+          
+          // If user is the receiver
+          if (tx.to && tx.to.toLowerCase() === addressLower) {
             totalReceived += value;
           }
         });
         
-        const netGain = totalReceived - totalSent;
+        // Net gain = received - sent - gas fees
+        const netGain = totalReceived - totalSent - gasFeesSpent;
         const estimatedTax = netGain > 0 ? netGain * 0.30 : 0; // 30% Indian crypto tax
         
-        console.log('Tax calculated:', { totalSent, totalReceived, netGain, estimatedTax, txCount: filteredTxs.length });
+        console.log('Tax calculated:', { 
+          totalSent, 
+          totalReceived, 
+          gasFeesSpent, 
+          netGain, 
+          estimatedTax, 
+          txCount: filteredTxs.length 
+        });
+        
         setCalculatedTax(estimatedTax);
         
         // Generate PDF automatically
         console.log('Generating PDF...');
         generatePDFInBrowser(estimatedTax, filteredTxs.length, effectiveAddress);
+        
+        // Show success message
+        if (filteredTxs.length > 0) {
+          toast({
+            title: "Report Generated!",
+            description: `Analyzed ${filteredTxs.length} transactions`,
+          });
+        } else {
+          toast({
+            title: "No Transactions",
+            description: "No transactions found in this date range",
+            variant: "destructive",
+          });
+        }
       } else {
         console.log('No transactions found or API error:', data);
+        setTxCount(0);
+        setCalculatedTax(0);
         generatePDFInBrowser(0, 0, effectiveAddress);
         toast({
           title: "No Transactions",
-          description: "No transactions found for this period",
+          description: data.message || "No transactions found for this period",
           variant: "destructive",
         });
       }
     } catch (error) {
       console.error('Error while fetching transactions:', error);
+      setTxCount(0);
+      setCalculatedTax(0);
       generatePDFInBrowser(0, 0, effectiveAddress);
       toast({
         title: "Error",
-        description: "Failed to fetch transaction data",
+        description: "Failed to fetch transaction data. Please check your API keys.",
         variant: "destructive",
       });
     } finally {
