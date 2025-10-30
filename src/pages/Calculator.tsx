@@ -70,58 +70,6 @@ const Calculator = () => {
     });
   };
 
-  const initiatePayment = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/.netlify/functions/create-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: 10,
-          currency: 'usd',
-          orderId: `tax-report-${Date.now()}`
-        })
-      });
-
-      const data = await response.json();
-      
-      if (data.invoice_url) {
-        window.open(data.invoice_url, '_blank');
-        
-        // Poll for payment confirmation
-        const paymentId = data.payment_id;
-        const checkInterval = setInterval(async () => {
-          const checkResponse = await fetch('/.netlify/functions/check-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: paymentId })
-          });
-          
-          const checkData = await checkResponse.json();
-          
-          if (checkData.confirmed) {
-            clearInterval(checkInterval);
-            toast({
-              title: "Payment Confirmed!",
-              description: "Generating your tax report...",
-            });
-            await calculateTax();
-          }
-        }, 3000);
-
-        // Stop checking after 10 minutes
-        setTimeout(() => clearInterval(checkInterval), 600000);
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-      toast({
-        title: "Payment Failed",
-        description: "Please try again",
-        variant: "destructive",
-      });
-      setLoading(false);
-    }
-  };
 
   const calculateTax = async () => {
     const effectiveAddress = (walletAddress || address || '').toString();
@@ -395,9 +343,9 @@ const Calculator = () => {
                   size="lg"
                   className="w-full bg-foreground text-background hover:bg-foreground/90"
                   disabled={!((address || walletAddress) && fromDate && toDate)}
-                  onClick={initiatePayment}
+                  onClick={calculateTax}
                 >
-                  Generate Tax Report ($10)
+                  Generate Tax Report
                 </Button>
               </>
             )}
