@@ -153,8 +153,8 @@ const Calculator = () => {
         ? `https://api.etherscan.io/v2/api?chainid=1`
         : `https://api.polygonscan.com/api`; // Polygon still uses v1 format
 
-      const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
-      const toTimestamp = Math.floor(toDate.getTime() / 1000);
+      const fromTimestamp = Math.floor(new Date(fromDate.setUTCHours(0, 0, 0, 0)).getTime() / 1000);
+      const toTimestamp = Math.floor(new Date(toDate.setUTCHours(23, 59, 59, 999)).getTime() / 1000);
 
       console.log('Fetching all transactions with pagination...');
       const allTransactions = await fetchAllTransactions(apiUrl, effectiveAddress, apiKey);
