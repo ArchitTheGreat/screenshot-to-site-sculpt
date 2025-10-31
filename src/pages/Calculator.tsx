@@ -71,6 +71,52 @@ const Calculator = () => {
   };
 
 
+  // Helper function to fetch all transactions with pagination
+  const fetchAllTransactions = async (
+    apiUrl: string,
+    addr: string,
+    apiKey: string
+  ): Promise<any[]> => {
+    let allTransactions: any[] = [];
+    let page = 1;
+    const offset = 10000;
+    
+    while (true) {
+      const url = `${apiUrl}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=asc&apikey=${apiKey}`;
+      console.log(`Fetching page ${page}...`);
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status !== '1' || !data.result || !Array.isArray(data.result)) {
+        break;
+      }
+      
+      allTransactions = allTransactions.concat(data.result);
+      
+      // If we got fewer than offset results, we've reached the end
+      if (data.result.length < offset) {
+        break;
+      }
+      
+      page++;
+    }
+    
+    return allTransactions;
+  };
+
+  // Helper function to convert Wei to ETH using BigInt for precision
+  const weiToEth = (wei: string): number => {
+    try {
+      const weiBigInt = BigInt(wei);
+      const ethBigInt = weiBigInt / BigInt(1e18);
+      const remainderBigInt = weiBigInt % BigInt(1e18);
+      return Number(ethBigInt) + Number(remainderBigInt) / 1e18;
+    } catch {
+      return 0;
+    }
+  };
+
   const calculateTax = async () => {
     const effectiveAddress = (walletAddress || address || '').toString();
     if (!effectiveAddress || !fromDate || !toDate) {
@@ -96,6 +142,7 @@ const Calculator = () => {
 
     console.log('Starting tax calculation for', effectiveAddress);
     setLoading(true);
+    
     try {
       const apiKey = blockchain === 'ethereum' 
         ? import.meta.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
@@ -109,91 +156,106 @@ const Calculator = () => {
       const fromTimestamp = Math.floor(fromDate.getTime() / 1000);
       const toTimestamp = Math.floor(toDate.getTime() / 1000);
 
-      console.log('Fetching transactions from:', apiUrl, 'for address:', effectiveAddress);
-      const response = await fetch(
-        `${apiUrl}&module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`
-      );
-
-      const data = await response.json();
-      console.log('API Response:', data);
+      console.log('Fetching all transactions with pagination...');
+      const allTransactions = await fetchAllTransactions(apiUrl, effectiveAddress, apiKey);
+      console.log(`Total transactions fetched: ${allTransactions.length}`);
       
-      if (data.status === '1' && data.result && Array.isArray(data.result)) {
-        const filteredTxs = data.result.filter((tx: any) => {
-          const txTimestamp = parseInt(tx.timeStamp);
-          return txTimestamp >= fromTimestamp && txTimestamp <= toTimestamp;
-        });
-
-        setTxCount(filteredTxs.length);
-        
-        // Improved calculation: properly distinguish sent vs received
-        let totalSent = 0;
-        let totalReceived = 0;
-        let gasFeesSpent = 0;
-        
-        filteredTxs.forEach((tx: any) => {
-          const value = parseFloat(tx.value) / 1e18; // Convert from Wei to ETH/MATIC
-          const addressLower = effectiveAddress.toLowerCase();
-          
-          // If user is the sender
-          if (tx.from.toLowerCase() === addressLower) {
-            totalSent += value;
-            // Add gas fees for sent transactions
-            const gasUsed = parseFloat(tx.gasUsed || 0);
-            const gasPrice = parseFloat(tx.gasPrice || 0);
-            gasFeesSpent += (gasUsed * gasPrice) / 1e18;
-          }
-          
-          // If user is the receiver
-          if (tx.to && tx.to.toLowerCase() === addressLower) {
-            totalReceived += value;
-          }
-        });
-        
-        // Net gain = received - sent - gas fees
-        const netGain = totalReceived - totalSent - gasFeesSpent;
-        const estimatedTax = netGain > 0 ? netGain * 0.30 : 0; // 30% Indian crypto tax
-        
-        console.log('Tax calculated:', { 
-          totalSent, 
-          totalReceived, 
-          gasFeesSpent, 
-          netGain, 
-          estimatedTax, 
-          txCount: filteredTxs.length 
-        });
-        
-        setCalculatedTax(estimatedTax);
-        
-        // Generate PDF automatically
-        console.log('Generating PDF...');
-        generatePDFInBrowser(estimatedTax, filteredTxs.length, effectiveAddress);
-        
-        // Show success message
-        if (filteredTxs.length > 0) {
-          toast({
-            title: "Report Generated!",
-            description: `Analyzed ${filteredTxs.length} transactions`,
-          });
-        } else {
-          toast({
-            title: "No Transactions",
-            description: "No transactions found in this date range",
-            variant: "destructive",
-          });
-        }
-      } else {
-        console.log('No transactions found or API error:', data);
+      if (allTransactions.length === 0) {
+        console.log('No transactions found for this address');
         setTxCount(0);
         setCalculatedTax(0);
         generatePDFInBrowser(0, 0, effectiveAddress);
         toast({
           title: "No Transactions",
-          description: data.message || "No transactions found for this period",
+          description: "No transactions found for this wallet",
           variant: "destructive",
         });
+        return;
       }
+
+      // Filter by date range
+      const filteredTxs = allTransactions.filter((tx: any) => {
+        const txTimestamp = parseInt(tx.timeStamp);
+        return txTimestamp >= fromTimestamp && txTimestamp <= toTimestamp;
+      });
+
+      console.log(`Transactions in date range: ${filteredTxs.length}`);
+      setTxCount(filteredTxs.length);
+      
+      if (filteredTxs.length === 0) {
+        console.log('No transactions in selected date range');
+        setTxCount(0);
+        setCalculatedTax(0);
+        generatePDFInBrowser(0, 0, effectiveAddress);
+        toast({
+          title: "No Transactions",
+          description: "No transactions found in this date range",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Calculate using BigInt for precision
+      let totalSentWei = BigInt(0);
+      let totalReceivedWei = BigInt(0);
+      let gasFeesWei = BigInt(0);
+      
+      const addressLower = effectiveAddress.toLowerCase();
+      
+      filteredTxs.forEach((tx: any) => {
+        const valueWei = BigInt(tx.value || '0');
+        const fromAddress = tx.from?.toLowerCase() || '';
+        const toAddress = tx.to?.toLowerCase() || '';
+        
+        // If user is the sender
+        if (fromAddress === addressLower) {
+          totalSentWei += valueWei;
+          
+          // Add gas fees for outgoing transactions
+          const gasUsed = BigInt(tx.gasUsed || '0');
+          const gasPrice = BigInt(tx.gasPrice || '0');
+          gasFeesWei += gasUsed * gasPrice;
+        }
+        
+        // If user is the receiver
+        if (toAddress === addressLower) {
+          totalReceivedWei += valueWei;
+        }
+      });
+      
+      // Convert to ETH with precision
+      const totalSent = weiToEth(totalSentWei.toString());
+      const totalReceived = weiToEth(totalReceivedWei.toString());
+      const gasFeesSpent = weiToEth(gasFeesWei.toString());
+      
+      // Calculate net gain and tax
+      const netGain = totalReceived - totalSent - gasFeesSpent;
+      const estimatedTax = netGain > 0 ? netGain * 0.30 : 0;
+      
+      const result = {
+        totalSent,
+        totalReceived,
+        gasFeesSpent,
+        netGain,
+        estimatedTax,
+        txCount: filteredTxs.length
+      };
+      
+      console.log('Tax calculation result:', result);
+      
+      setCalculatedTax(estimatedTax);
+      
+      // Generate PDF automatically
+      console.log('Generating PDF...');
+      generatePDFInBrowser(estimatedTax, filteredTxs.length, effectiveAddress);
+      
+      toast({
+        title: "Report Generated!",
+        description: `Analyzed ${filteredTxs.length} transactions`,
+      });
+      
     } catch (error) {
-      console.error('Error while fetching transactions:', error);
+      console.error('Error during tax calculation:', error);
       setTxCount(0);
       setCalculatedTax(0);
       generatePDFInBrowser(0, 0, effectiveAddress);
