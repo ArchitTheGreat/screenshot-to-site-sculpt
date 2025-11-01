@@ -120,7 +120,6 @@ const Calculator = () => {
   const calculateTax = async () => {
     const effectiveAddress = (walletAddress || address || '').toString();
     if (!effectiveAddress || !fromDate || !toDate) {
-      console.log('Missing required data:', { effectiveAddress, fromDate, toDate });
       toast({
         title: "Missing Information",
         description: "Please enter a wallet address and select dates",
@@ -129,7 +128,6 @@ const Calculator = () => {
       return;
     }
 
-    // Validate date range is not in the future
     const now = new Date();
     if (fromDate > now || toDate > now) {
       toast({
@@ -140,62 +138,54 @@ const Calculator = () => {
       return;
     }
 
-    console.log('Starting tax calculation for', effectiveAddress);
     setLoading(true);
     
     try {
+      // TODO: Payment verification would go here (IPN key validation)
+      // const paymentVerified = await verifyPaymentWithIPN(hardcodedIPNKey);
+      // if (!paymentVerified) { toast error and return }
+      
       const apiKey = blockchain === 'ethereum' 
         ? import.meta.env.VITE_ETHERSCAN_API_KEY || 'YourEtherscanAPIKey'
         : import.meta.env.VITE_POLYGONSCAN_API_KEY || 'YourPolygonscanAPIKey';
       
-      // Etherscan v2 API with chainid parameter
       const apiUrl = blockchain === 'ethereum'
         ? `https://api.etherscan.io/v2/api?chainid=1`
-        : `https://api.polygonscan.com/api`; // Polygon still uses v1 format
+        : `https://api.polygonscan.com/api`;
 
       const fromTimestamp = Math.floor(new Date(fromDate.setUTCHours(0, 0, 0, 0)).getTime() / 1000);
       const toTimestamp = Math.floor(new Date(toDate.setUTCHours(23, 59, 59, 999)).getTime() / 1000);
 
-      console.log('Fetching all transactions with pagination...');
       const allTransactions = await fetchAllTransactions(apiUrl, effectiveAddress, apiKey);
-      console.log(`Total transactions fetched: ${allTransactions.length}`);
       
       if (allTransactions.length === 0) {
-        console.log('No transactions found for this address');
         setTxCount(0);
         setCalculatedTax(0);
         generatePDFInBrowser(0, 0, effectiveAddress);
         toast({
           title: "No Transactions",
           description: "No transactions found for this wallet",
-          variant: "destructive",
         });
         return;
       }
 
-      // Filter by date range
       const filteredTxs = allTransactions.filter((tx: any) => {
         const txTimestamp = parseInt(tx.timeStamp);
         return txTimestamp >= fromTimestamp && txTimestamp <= toTimestamp;
       });
 
-      console.log(`Transactions in date range: ${filteredTxs.length}`);
       setTxCount(filteredTxs.length);
       
       if (filteredTxs.length === 0) {
-        console.log('No transactions in selected date range');
-        setTxCount(0);
         setCalculatedTax(0);
         generatePDFInBrowser(0, 0, effectiveAddress);
         toast({
           title: "No Transactions",
           description: "No transactions found in this date range",
-          variant: "destructive",
         });
         return;
       }
 
-      // Calculate using BigInt for precision
       let totalSentWei = BigInt(0);
       let totalReceivedWei = BigInt(0);
       let gasFeesWei = BigInt(0);
@@ -207,46 +197,25 @@ const Calculator = () => {
         const fromAddress = tx.from?.toLowerCase() || '';
         const toAddress = tx.to?.toLowerCase() || '';
         
-        // If user is the sender
         if (fromAddress === addressLower) {
           totalSentWei += valueWei;
-          
-          // Add gas fees for outgoing transactions
           const gasUsed = BigInt(tx.gasUsed || '0');
           const gasPrice = BigInt(tx.gasPrice || '0');
           gasFeesWei += gasUsed * gasPrice;
         }
         
-        // If user is the receiver
         if (toAddress === addressLower) {
           totalReceivedWei += valueWei;
         }
       });
       
-      // Convert to ETH with precision
       const totalSent = weiToEth(totalSentWei.toString());
       const totalReceived = weiToEth(totalReceivedWei.toString());
       const gasFeesSpent = weiToEth(gasFeesWei.toString());
-      
-      // Calculate net gain and tax
       const netGain = totalReceived - totalSent - gasFeesSpent;
       const estimatedTax = netGain > 0 ? netGain * 0.30 : 0;
       
-      const result = {
-        totalSent,
-        totalReceived,
-        gasFeesSpent,
-        netGain,
-        estimatedTax,
-        txCount: filteredTxs.length
-      };
-      
-      console.log('Tax calculation result:', result);
-      
       setCalculatedTax(estimatedTax);
-      
-      // Generate PDF automatically
-      console.log('Generating PDF...');
       generatePDFInBrowser(estimatedTax, filteredTxs.length, effectiveAddress);
       
       toast({
@@ -255,13 +224,10 @@ const Calculator = () => {
       });
       
     } catch (error) {
-      console.error('Error during tax calculation:', error);
-      setTxCount(0);
-      setCalculatedTax(0);
-      generatePDFInBrowser(0, 0, effectiveAddress);
+      console.error('Tax calculation error:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch transaction data. Please check your API keys.",
+        description: "Failed to generate report. Please check your inputs.",
         variant: "destructive",
       });
     } finally {
