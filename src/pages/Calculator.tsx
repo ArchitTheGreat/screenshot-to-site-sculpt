@@ -71,35 +71,61 @@ const Calculator = () => {
   };
 
 
-  // Helper function to fetch all transactions with pagination
-  const fetchAllTransactions = async (
+  // Helper function to fetch transactions per day with rate limiting (5 calls/sec)
+  const fetchTransactionsPerDay = async (
     apiUrl: string,
     addr: string,
-    apiKey: string
+    apiKey: string,
+    fromTimestamp: number,
+    toTimestamp: number
   ): Promise<any[]> => {
-    let allTransactions: any[] = [];
-    let page = 1;
-    const offset = 10000;
+    const allTransactions: any[] = [];
+    const oneDayInSeconds = 86400;
+    const callsPerSecond = 5;
+    const delayBetweenBatches = 1000; // 1 second
     
-    while (true) {
-      const url = `${apiUrl}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=asc&apikey=${apiKey}`;
-      console.log(`Fetching page ${page}...`);
+    // Calculate number of days
+    const days: Array<{ start: number; end: number }> = [];
+    let currentStart = fromTimestamp;
+    
+    while (currentStart < toTimestamp) {
+      const currentEnd = Math.min(currentStart + oneDayInSeconds - 1, toTimestamp);
+      days.push({ start: currentStart, end: currentEnd });
+      currentStart = currentEnd + 1;
+    }
+    
+    console.log(`Fetching transactions for ${days.length} days...`);
+    
+    // Process in batches of 5 (rate limit)
+    for (let i = 0; i < days.length; i += callsPerSecond) {
+      const batch = days.slice(i, i + callsPerSecond);
       
-      const response = await fetch(url);
-      const data = await response.json();
+      const batchPromises = batch.map(async ({ start, end }) => {
+        const url = `${apiUrl}&module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&starttime=${start}&endtime=${end}&apikey=${apiKey}`;
+        
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          if (data.status === '1' && Array.isArray(data.result)) {
+            return data.result;
+          }
+          return [];
+        } catch (error) {
+          console.error(`Error fetching day ${start}:`, error);
+          return [];
+        }
+      });
       
-      if (data.status !== '1' || !data.result || !Array.isArray(data.result)) {
-        break;
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach(results => {
+        allTransactions.push(...results);
+      });
+      
+      // Wait 1 second between batches to respect rate limit
+      if (i + callsPerSecond < days.length) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
       }
-      
-      allTransactions = allTransactions.concat(data.result);
-      
-      // If we got fewer than offset results, we've reached the end
-      if (data.result.length < offset) {
-        break;
-      }
-      
-      page++;
     }
     
     return allTransactions;
@@ -156,7 +182,7 @@ const Calculator = () => {
       const fromTimestamp = Math.floor(new Date(fromDate.setUTCHours(0, 0, 0, 0)).getTime() / 1000);
       const toTimestamp = Math.floor(new Date(toDate.setUTCHours(23, 59, 59, 999)).getTime() / 1000);
 
-      const allTransactions = await fetchAllTransactions(apiUrl, effectiveAddress, apiKey);
+      const allTransactions = await fetchTransactionsPerDay(apiUrl, effectiveAddress, apiKey, fromTimestamp, toTimestamp);
       
       if (allTransactions.length === 0) {
         setTxCount(0);
