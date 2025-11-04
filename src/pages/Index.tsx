@@ -29,7 +29,7 @@ const Index = () => {
           {/* CTA Button */}
           <Button 
             size="lg"
-            onClick={() => navigate('/calculator')}
+            onClick={() => navigate('/simple-calculator')}
             className="mt-8 sm:mt-12 md:mt-16 px-8 sm:px-10 md:px-12 py-6 sm:py-7 md:py-8 text-fluid-base sm:text-fluid-lg md:text-fluid-xl font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 shadow-lg hover:shadow-xl"
           >
             <span className="mr-2">◉</span>
