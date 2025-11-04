@@ -17,7 +17,7 @@ const SimpleCalculator = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type === 'text/csv') {
+    if (file && file.name.toLowerCase().endsWith('.csv')) {
       setCsvFile(file);
       
       // Read CSV file
