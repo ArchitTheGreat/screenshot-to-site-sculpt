@@ -1,0 +1,194 @@
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Upload, FileText, ExternalLink } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+import jsPDF from 'jspdf';
+
+const SimpleCalculator = () => {
+  const navigate = useNavigate();
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [hasPaid, setHasPaid] = useState(false);
+  const [csvData, setCsvData] = useState<any[]>([]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type === 'text/csv') {
+      setCsvFile(file);
+      
+      // Read CSV file
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        const rows = text.split('\n').map(row => row.split(','));
+        setCsvData(rows);
+        
+        toast({
+          title: "CSV Uploaded",
+          description: `Loaded ${rows.length} rows`,
+        });
+      };
+      reader.readAsText(file);
+    } else {
+      toast({
+        title: "Invalid File",
+        description: "Please upload a CSV file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const generatePDF = () => {
+    if (!csvFile || csvData.length === 0) {
+      toast({
+        title: "No Data",
+        description: "Please upload a CSV file first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.text('KryptoGain Tax Report', 20, 20);
+    
+    doc.setFontSize(12);
+    doc.text(`File: ${csvFile.name}`, 20, 35);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 45);
+    
+    // Summary
+    doc.setFontSize(16);
+    doc.text('Transaction Summary', 20, 65);
+    doc.setFontSize(12);
+    doc.text(`Total Rows: ${csvData.length}`, 20, 75);
+    
+    // Transaction details section
+    doc.setFontSize(14);
+    doc.text('CSV Data Preview', 20, 95);
+    doc.setFontSize(10);
+    
+    let yPosition = 105;
+    const maxRows = Math.min(csvData.length, 10);
+    
+    for (let i = 0; i < maxRows; i++) {
+      const row = csvData[i].join(' | ');
+      if (yPosition > 270) break;
+      doc.text(row.substring(0, 80), 20, yPosition);
+      yPosition += 7;
+    }
+    
+    if (csvData.length > 10) {
+      doc.text(`... and ${csvData.length - 10} more rows`, 20, yPosition + 10);
+    }
+    
+    // Download
+    doc.save(`kryptogain-report-${Date.now()}.pdf`);
+    
+    toast({
+      title: "PDF Generated!",
+      description: "Your tax report has been downloaded.",
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-background px-4 sm:px-6 md:px-8 py-8 sm:py-12 md:py-16">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8 sm:mb-12">
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/')}
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          
+          <h1 className="font-serif text-fluid-3xl sm:text-fluid-4xl font-bold text-center flex-1">
+            KryptoGain
+          </h1>
+
+          <div className="w-[100px]"></div>
+        </div>
+
+        {/* Upload Section */}
+        <Card className="p-6 sm:p-8 mb-8">
+          <h2 className="font-serif text-fluid-2xl font-semibold mb-6">
+            Upload CSV
+          </h2>
+
+          <div className="space-y-6">
+            {/* File Upload */}
+            <div className="space-y-2">
+              <Label htmlFor="csv-upload">Transaction CSV File</Label>
+              <div className="flex items-center gap-4">
+                <Input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="flex-1"
+                />
+                <Upload className="h-5 w-5 text-muted-foreground" />
+              </div>
+              {csvFile && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
+                  <FileText className="h-4 w-4" />
+                  <span>{csvFile.name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Payment Section */}
+            <div className="border-t pt-6 space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="payment" 
+                  checked={hasPaid}
+                  onCheckedChange={(checked) => setHasPaid(checked as boolean)}
+                />
+                <Label 
+                  htmlFor="payment" 
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  I have paid $15
+                </Label>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                asChild
+              >
+                <a href="https://payment-link.example.com" target="_blank" rel="noopener noreferrer">
+                  Pay Now
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </Button>
+            </div>
+
+            {/* Generate PDF Button */}
+            {hasPaid && (
+              <Button
+                size="lg"
+                className="w-full bg-foreground text-background hover:bg-foreground/90"
+                disabled={!csvFile}
+                onClick={generatePDF}
+              >
+                Generate PDF Report
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default SimpleCalculator;
