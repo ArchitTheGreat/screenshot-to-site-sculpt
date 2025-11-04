@@ -4,9 +4,8 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, FileText, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, FileText, ExternalLink } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 
@@ -15,9 +14,6 @@ const SimpleCalculator = () => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [hasPaid, setHasPaid] = useState(false);
   const [csvData, setCsvData] = useState<any[]>([]);
-  const [userDetails, setUserDetails] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState('');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,101 +42,12 @@ const SimpleCalculator = () => {
     }
   };
 
-  const analyzeWithAI = async () => {
-    if (!csvFile || csvData.length === 0) {
-      toast({
-        title: "No Data",
-        description: "Please upload a CSV file first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGenerating(true);
-    
-    try {
-      const systemPrompt = `You are a professional Crypto Tax Analyst AI, specialized in tracking, auditing, and analyzing cryptocurrency wallet transactions. You understand blockchain explorers (like Etherscan, BscScan, Solscan), DEX activity, NFT sales, token swaps, airdrops, staking rewards, and cross-chain transfers. Your goal is to provide precise tax-ready insights and profit/loss reports based on the user's transaction data.
-
-⚙️ Core Responsibilities:
-
-Transaction Categorization:
-- Identify each transaction as one of the following: Buy/Sell, Swap, Transfer (incoming/outgoing), Airdrop/Reward/Staking Income, Gas Fee, Internal Contract Interaction
-- Auto-detect the chain (ETH, BSC, Polygon, Solana, etc.) and token standards (ERC-20, ERC-721, ERC-1155).
-
-Profit/Loss Calculation:
-- Track cost basis for every token purchase.
-- Calculate realized profits/losses for each sale or swap.
-- Account for gas fees and adjust net profits accordingly.
-- Maintain FIFO (first-in-first-out) method.
-
-Tax Reporting:
-- Separate short-term vs long-term gains (based on holding period).
-- Identify taxable events (sell, trade, convert, reward).
-- Provide summary tables: Total taxable income (in INR/USD), Unrealized holdings, Fees paid, Net profit/loss
-
-Error Handling & Optimization:
-- Handle large transaction sets by summarizing repetitive actions.
-- Suggest potential optimizations.`;
-
-      const csvContent = csvData.map(row => row.join(',')).join('\n');
-      const userPrompt = `Analyze these cryptocurrency transactions and provide a comprehensive tax report:\n\nUser Details: ${userDetails || 'Not provided'}\n\nCSV Data:\n${csvContent}`;
-
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview:generateContent?key=AIzaSyAOUuAaK2G3rlAF2BKBgrLAPNhlge0_EzM', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `${systemPrompt}\n\n${userPrompt}`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 8192,
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to analyze with AI');
-      }
-
-      const data = await response.json();
-      const analysis = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No analysis generated';
-      setAiAnalysis(analysis);
-      
-      toast({
-        title: "Analysis Complete!",
-        description: "AI has analyzed your transactions. Generate PDF to view the report.",
-      });
-    } catch (error) {
-      console.error('AI Analysis error:', error);
-      toast({
-        title: "Analysis Failed",
-        description: "Could not analyze transactions. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   const generatePDF = () => {
     if (!csvFile || csvData.length === 0) {
       toast({
         title: "No Data",
         description: "Please upload a CSV file first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!aiAnalysis) {
-      toast({
-        title: "No Analysis",
-        description: "Please analyze the data first",
         variant: "destructive",
       });
       return;
@@ -164,24 +71,6 @@ Error Handling & Optimization:
     yPos += 7;
     doc.text(`Total Transactions: ${csvData.length}`, margin, yPos);
     yPos += 15;
-
-    // AI Analysis Section
-    doc.setFontSize(16);
-    doc.text('AI Tax Analysis', margin, yPos);
-    yPos += 10;
-    
-    doc.setFontSize(9);
-    const analysisLines = doc.splitTextToSize(aiAnalysis, 170);
-    for (let line of analysisLines) {
-      if (yPos > pageHeight) {
-        doc.addPage();
-        yPos = margin;
-      }
-      doc.text(line, margin, yPos);
-      yPos += 5;
-    }
-    
-    yPos += 10;
 
     // All Transactions
     if (yPos > pageHeight - 20) {
@@ -270,18 +159,6 @@ Error Handling & Optimization:
               )}
             </div>
 
-            {/* User Details */}
-            <div className="space-y-2">
-              <Label htmlFor="user-details">Additional Details (Optional)</Label>
-              <Textarea
-                id="user-details"
-                placeholder="Enter any specific details about your transactions, tax method preferences (FIFO/LIFO), holding periods, or questions for the AI analyst..."
-                value={userDetails}
-                onChange={(e) => setUserDetails(e.target.value)}
-                className="min-h-[100px]"
-              />
-            </div>
-
             {/* Payment Section */}
             <div className="border-t pt-6 space-y-4">
               <div className="flex items-center space-x-2">
@@ -310,35 +187,16 @@ Error Handling & Optimization:
               </Button>
             </div>
 
-            {/* Analyze and Generate Buttons */}
+            {/* Generate Button */}
             {hasPaid && (
-              <div className="space-y-3">
-                <Button
-                  size="lg"
-                  className="w-full"
-                  disabled={!csvFile || isGenerating}
-                  onClick={analyzeWithAI}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Analyzing with AI...
-                    </>
-                  ) : (
-                    'Analyze Transactions with AI'
-                  )}
-                </Button>
-                
-                {aiAnalysis && (
-                  <Button
-                    size="lg"
-                    className="w-full bg-foreground text-background hover:bg-foreground/90"
-                    onClick={generatePDF}
-                  >
-                    Generate PDF Report
-                  </Button>
-                )}
-              </div>
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={!csvFile}
+                onClick={generatePDF}
+              >
+                Generate PDF Report
+              </Button>
             )}
           </div>
         </Card>
