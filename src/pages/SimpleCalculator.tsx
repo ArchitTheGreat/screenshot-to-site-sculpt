@@ -17,6 +17,7 @@ const SimpleCalculator = () => {
   const [netProfit, setNetProfit] = useState<number>(0);
   const [totalBuys, setTotalBuys] = useState<number>(0);
   const [totalSells, setTotalSells] = useState<number>(0);
+  const [taxRate, setTaxRate] = useState<number>(30);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -121,6 +122,23 @@ const SimpleCalculator = () => {
     }
     doc.text(`Net Profit/Loss: $${netProfit.toFixed(2)}`, margin, yPos);
     doc.setTextColor(0, 0, 0);
+    yPos += 10;
+    
+    // Tax Calculation
+    const taxAmount = netProfit > 0 ? (netProfit * taxRate) / 100 : 0;
+    const netAfterTax = netProfit - taxAmount;
+    
+    doc.setFontSize(12);
+    doc.text(`Tax Rate: ${taxRate}%`, margin, yPos);
+    yPos += 7;
+    doc.setTextColor(255, 69, 0);
+    doc.text(`Tax Amount: $${taxAmount.toFixed(2)}`, margin, yPos);
+    doc.setTextColor(0, 0, 0);
+    yPos += 7;
+    doc.setFontSize(14);
+    doc.setTextColor(0, 100, 200);
+    doc.text(`Net After Tax: $${netAfterTax.toFixed(2)}`, margin, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 15;
 
     // All Transactions
@@ -208,6 +226,21 @@ const SimpleCalculator = () => {
                   <span>{csvFile.name}</span>
                 </div>
               )}
+            </div>
+
+            {/* Tax Rate */}
+            <div className="space-y-2">
+              <Label htmlFor="tax-rate">Tax Rate (%)</Label>
+              <Input
+                id="tax-rate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={taxRate}
+                onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
+                className="w-full"
+              />
             </div>
 
             {/* Payment Section */}
