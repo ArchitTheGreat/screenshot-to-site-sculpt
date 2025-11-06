@@ -14,6 +14,9 @@ const SimpleCalculator = () => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [hasPaid, setHasPaid] = useState(false);
   const [csvData, setCsvData] = useState<any[]>([]);
+  const [netProfit, setNetProfit] = useState<number>(0);
+  const [totalBuys, setTotalBuys] = useState<number>(0);
+  const [totalSells, setTotalSells] = useState<number>(0);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -24,12 +27,40 @@ const SimpleCalculator = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const text = event.target?.result as string;
-        const rows = text.split('\n').map(row => row.split(','));
+        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
         setCsvData(rows);
+        
+        // Calculate profit/loss
+        if (rows.length > 1) {
+          const headers = rows[0].map(h => h.toLowerCase());
+          const typeIndex = headers.findIndex(h => h.includes('type') || h.includes('transaction'));
+          const amountIndex = headers.findIndex(h => h.includes('amount') || h.includes('usd') || h.includes('value'));
+          
+          let buys = 0;
+          let sells = 0;
+          
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (row.length <= 1) continue; // Skip empty rows
+            
+            const type = row[typeIndex]?.toLowerCase() || '';
+            const amount = parseFloat(row[amountIndex]?.replace(/[^0-9.-]/g, '') || '0');
+            
+            if (type.includes('buy') || type.includes('deposit') || type.includes('receive')) {
+              buys += amount;
+            } else if (type.includes('sell') || type.includes('withdraw') || type.includes('send')) {
+              sells += amount;
+            }
+          }
+          
+          setTotalBuys(buys);
+          setTotalSells(sells);
+          setNetProfit(sells - buys);
+        }
         
         toast({
           title: "CSV Uploaded",
-          description: `Loaded ${rows.length} rows`,
+          description: `Loaded ${rows.length - 1} transactions`,
         });
       };
       reader.readAsText(file);
@@ -69,7 +100,27 @@ const SimpleCalculator = () => {
     yPos += 7;
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
     yPos += 7;
-    doc.text(`Total Transactions: ${csvData.length}`, margin, yPos);
+    doc.text(`Total Transactions: ${csvData.length - 1}`, margin, yPos);
+    yPos += 15;
+    
+    // Financial Summary
+    doc.setFontSize(16);
+    doc.text('Financial Summary', margin, yPos);
+    yPos += 10;
+    
+    doc.setFontSize(12);
+    doc.text(`Total Buys/Deposits: $${totalBuys.toFixed(2)}`, margin, yPos);
+    yPos += 7;
+    doc.text(`Total Sells/Withdrawals: $${totalSells.toFixed(2)}`, margin, yPos);
+    yPos += 7;
+    doc.setFontSize(14);
+    if (netProfit >= 0) {
+      doc.setTextColor(0, 128, 0);
+    } else {
+      doc.setTextColor(255, 0, 0);
+    }
+    doc.text(`Net Profit/Loss: $${netProfit.toFixed(2)}`, margin, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 15;
 
     // All Transactions
