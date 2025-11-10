@@ -37,6 +37,7 @@ const SimpleCalculator = () => {
   const [totalSells, setTotalSells] = useState<number>(0);
   const [totalTax, setTotalTax] = useState<number>(0);
   const [jurisdiction, setJurisdiction] = useState<string>('us-short');
+  const [dragActive, setDragActive] = useState(false);
 
   const taxJurisdictions: Record<string, TaxJurisdiction> = {
     'us-short': {
@@ -80,8 +81,7 @@ const SimpleCalculator = () => {
     return { taxAmount: 0, taxRate: 0 };
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processFile = (file: File) => {
     if (file && file.name.toLowerCase().endsWith('.csv')) {
       setCsvFile(file);
       
@@ -152,6 +152,33 @@ const SimpleCalculator = () => {
         description: "Please upload a CSV file",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -380,22 +407,45 @@ const SimpleCalculator = () => {
             {/* File Upload */}
             <div className="space-y-2">
               <Label htmlFor="csv-upload">Transaction CSV File</Label>
-              <div className="flex items-center gap-4">
-                <Input
+              <div
+                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-all ${
+                  dragActive
+                    ? 'border-primary bg-primary/5 scale-[1.02]'
+                    : 'border-border hover:border-primary/50 hover:bg-accent/50'
+                }`}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                <input
                   id="csv-upload"
                   type="file"
                   accept=".csv"
                   onChange={handleFileUpload}
-                  className="flex-1"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
-                <Upload className="h-5 w-5 text-muted-foreground" />
-              </div>
-              {csvFile && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
-                  <FileText className="h-4 w-4" />
-                  <span>{csvFile.name}</span>
+                <div className="flex flex-col items-center gap-3">
+                  <div className={`p-3 rounded-full bg-primary/10 transition-transform ${dragActive ? 'scale-110' : ''}`}>
+                    <Upload className={`h-6 w-6 transition-colors ${dragActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                  </div>
+                  {csvFile ? (
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <FileText className="h-4 w-4 text-primary" />
+                      <span>{csvFile.name}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-foreground">
+                        {dragActive ? 'Drop your CSV file here' : 'Drag & drop your CSV file here'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        or click to browse
+                      </p>
+                    </>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Tax Jurisdiction */}
