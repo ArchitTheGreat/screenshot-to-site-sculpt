@@ -1,22 +1,35 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Index from './pages/Index';
-import SimpleCalculator from './pages/SimpleCalculator';
-import NotFound from './pages/NotFound';
-import { Toaster } from './components/ui/sonner';
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { WagmiProvider } from 'wagmi';
+import { config } from './config/wagmi';
+import Index from "./pages/Index";
+import Calculator from "./pages/Calculator";
+import SimpleCalculator from "./pages/SimpleCalculator";
+import NotFound from "./pages/NotFound";
 
-function App() {
-  return (
-    <Router>
-      <div className="min-h-screen bg-background">
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/simple-calculator" element={<SimpleCalculator />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+const queryClient = new QueryClient();
+
+const App = () => (
+  <WagmiProvider config={config}>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
         <Toaster />
-      </div>
-    </Router>
-  );
-}
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/calculator" element={<Calculator />} />
+            <Route path="/simple-calculator" element={<SimpleCalculator />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </WagmiProvider>
+);
 
 export default App;
