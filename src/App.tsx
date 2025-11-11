@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { WagmiProvider } from 'wagmi';
+import { WagmiConfig } from 'wagmi';
 import { config } from './config/wagmi';
 import Index from "./pages/Index";
 import Calculator from "./pages/Calculator";
@@ -13,7 +13,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const App = () => (
-  <WagmiProvider config={config}>
+  <WagmiConfig config={config}>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
@@ -29,7 +29,7 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
-  </WagmiProvider>
+  </WagmiConfig>
 );
 
 export default App;

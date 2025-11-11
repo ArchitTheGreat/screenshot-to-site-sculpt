@@ -38,6 +38,21 @@ const SimpleCalculator = () => {
   const [totalTax, setTotalTax] = useState<number>(0);
   const [jurisdiction, setJurisdiction] = useState<string>('us-short');
   const [dragActive, setDragActive] = useState(false);
+  const [costBasisPerEth, setCostBasisPerEth] = useState<number>(2500);
+  const [costBasisInput, setCostBasisInput] = useState<string>('2500');
+
+  const handleCostBasisChange = (value: string) => {
+    setCostBasisInput(value);
+    const parsedValue = parseFloat(value);
+    
+    if (isNaN(parsedValue) || parsedValue <= 0) {
+      // Invalid input - use default and warn
+      console.warn('Invalid cost basis input, using default $2500');
+      setCostBasisPerEth(2500);
+    } else {
+      setCostBasisPerEth(parsedValue);
+    }
+  };
 
   const taxJurisdictions: Record<string, TaxJurisdiction> = {
     'us-short': {
@@ -92,52 +107,91 @@ const SimpleCalculator = () => {
         const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
         setCsvData(rows);
         
-        // Calculate profit/loss and taxes
+        // Calculate profit/loss and taxes based on ETH transactions
         if (rows.length > 1) {
           const headers = rows[0].map(h => h.toLowerCase());
-          const typeIndex = headers.findIndex(h => h.includes('type') || h.includes('transaction'));
-          const amountIndex = headers.findIndex(h => h.includes('amount') || h.includes('usd') || h.includes('value'));
-          const dateIndex = headers.findIndex(h => h.includes('date') || h.includes('time'));
           
-          let buys = 0;
-          let sells = 0;
-          let totalTaxCalc = 0;
+          // Find column indices - matching the CSV format described
+          const methodIndex = headers.findIndex(h => h.includes('method'));
+          const amountIndex = headers.findIndex(h => h.includes('amount') && !h.includes('value'));
+          const valueIndex = headers.findIndex(h => h.includes('value') && h.includes('usd'));
+          const feeIndex = headers.findIndex(h => h.includes('txn fee') || h.includes('fee'));
+          const dateIndex = headers.findIndex(h => h.includes('datetime'));
+          
+          let totalEthSent = 0;
+          let totalUsdValue = 0;
+          let totalFeesEth = 0;
+          let totalGasFeesUsd = 0;
           const parsedTransactions: Transaction[] = [];
           
           for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if (row.length <= 1) continue; // Skip empty rows
             
-            const type = row[typeIndex]?.toLowerCase() || '';
-            const value = parseFloat(row[amountIndex]?.replace(/[^0-9.-]/g, '') || '0');
+            // Parse Amount (remove " ETH" suffix)
+            const amountStr = row[amountIndex] || '0';
+            const ethAmount = parseFloat(amountStr.replace(/[^0-9.-]/g, ''));
+            
+            // Parse Value (USD) (remove "$" prefix)
+            const valueStr = row[valueIndex] || '0';
+            const usdValue = parseFloat(valueStr.replace(/[^0-9.-]/g, ''));
+            
+            // Parse Txn Fee (remove " ETH" suffix)
+            const feeStr = row[feeIndex] || '0';
+            const feeEth = parseFloat(feeStr.replace(/[^0-9.-]/g, ''));
+            
+            // Skip invalid rows
+            if (isNaN(ethAmount) || isNaN(usdValue)) continue;
+            
+            // Calculate gas fee in USD: fee(ETH) × (Value ÷ Amount)
+            let gasFeeUsd = 0;
+            if (ethAmount !== 0 && !isNaN(feeEth)) {
+              const ethPriceEstimate = usdValue / ethAmount;
+              gasFeeUsd = feeEth * ethPriceEstimate;
+            }
+            
+            const method = row[methodIndex] || 'unknown';
             const date = dateIndex >= 0 ? row[dateIndex] : '';
             
-            const { taxAmount, taxRate } = calculateTransactionTax(type, value);
+            // Accumulate totals
+            totalEthSent += ethAmount;
+            totalUsdValue += usdValue;
+            totalFeesEth += feeEth;
+            totalGasFeesUsd += gasFeeUsd;
             
             const transaction: Transaction = {
-              type,
-              amount: value,
-              value,
+              type: method,
+              amount: ethAmount,
+              value: usdValue,
               date,
-              taxAmount,
-              taxRate
+              taxAmount: 0, // Will calculate after
+              taxRate: 0
             };
             
             parsedTransactions.push(transaction);
-            totalTaxCalc += taxAmount;
-            
-            if (type.includes('buy') || type.includes('deposit') || type.includes('receive')) {
-              buys += value;
-            } else if (type.includes('sell') || type.includes('withdraw') || type.includes('send') || type.includes('swap')) {
-              sells += value;
-            }
           }
           
+          // Use user-provided cost basis per ETH, with validation
+          let COST_BASIS_PER_ETH = costBasisPerEth;
+          const TAX_RATE = 0.30; // 30%
+          
+          // Calculate profit/loss
+          const costBasisTotal = totalEthSent * COST_BASIS_PER_ETH;
+          const gainLossUsd = totalUsdValue - costBasisTotal;
+          const taxOwedUsd = Math.max(0, gainLossUsd * TAX_RATE);
+          
+          // Update transactions with tax info
+          const taxPerTransaction = parsedTransactions.length > 0 ? taxOwedUsd / parsedTransactions.length : 0;
+          parsedTransactions.forEach(tx => {
+            tx.taxAmount = taxPerTransaction;
+            tx.taxRate = TAX_RATE * 100;
+          });
+          
           setTransactions(parsedTransactions);
-          setTotalBuys(buys);
-          setTotalSells(sells);
-          setNetProfit(sells - buys);
-          setTotalTax(totalTaxCalc);
+          setTotalBuys(costBasisTotal);
+          setTotalSells(totalUsdValue);
+          setNetProfit(gainLossUsd);
+          setTotalTax(taxOwedUsd);
         }
         
         toast({
@@ -198,6 +252,12 @@ const SimpleCalculator = () => {
     const pageHeight = 280;
     const margin = 20;
     
+    // Calculate totals for display
+    const totalEthSent = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+    const totalUsdValue = transactions.reduce((sum, tx) => sum + tx.value, 0);
+    const COST_BASIS_PER_ETH = costBasisPerEth;
+    const TAX_RATE = 30;
+    
     // Header
     doc.setFontSize(20);
     doc.text('KryptoGain Tax Report', margin, yPos);
@@ -208,135 +268,78 @@ const SimpleCalculator = () => {
     yPos += 7;
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
     yPos += 7;
-    doc.text(`Tax Jurisdiction: ${taxJurisdictions[jurisdiction].name}`, margin, yPos);
-    yPos += 7;
     doc.text(`Total Transactions: ${transactions.length}`, margin, yPos);
     yPos += 15;
     
-    // Financial Summary
+    // Calculation Summary
     doc.setFontSize(16);
-    doc.text('Financial Summary', margin, yPos);
+    doc.text('Calculation Summary', margin, yPos);
     yPos += 10;
     
     doc.setFontSize(12);
-    doc.text(`Total Buys/Deposits: $${totalBuys.toFixed(2)}`, margin, yPos);
+    doc.text(`Total ETH Sent: ${totalEthSent.toFixed(4)} ETH`, margin, yPos);
     yPos += 7;
-    doc.text(`Total Sells/Withdrawals: $${totalSells.toFixed(2)}`, margin, yPos);
+    doc.text(`Total USD Value: $${totalUsdValue.toFixed(2)}`, margin, yPos);
     yPos += 7;
+    doc.text(`Cost Basis per ETH: $${COST_BASIS_PER_ETH.toFixed(2)}`, margin, yPos);
+    yPos += 7;
+    doc.text(`Total Cost Basis: $${totalBuys.toFixed(2)}`, margin, yPos);
+    yPos += 10;
+    
+    // Profit/Loss
     doc.setFontSize(14);
     if (netProfit >= 0) {
       doc.setTextColor(0, 128, 0);
+      doc.text(`Gain: $${netProfit.toFixed(2)}`, margin, yPos);
     } else {
       doc.setTextColor(255, 0, 0);
+      doc.text(`Loss: $${Math.abs(netProfit).toFixed(2)}`, margin, yPos);
     }
-    doc.text(`Net Profit/Loss: $${netProfit.toFixed(2)}`, margin, yPos);
     doc.setTextColor(0, 0, 0);
     yPos += 10;
     
-    // Tax Calculation Summary
-    const netAfterTax = netProfit - totalTax;
-    
+    // Tax Calculation
     doc.setFontSize(12);
-    doc.setTextColor(255, 69, 0);
-    doc.text(`Total Tax Owed: $${totalTax.toFixed(2)}`, margin, yPos);
-    doc.setTextColor(0, 0, 0);
+    doc.text(`Tax Rate: ${TAX_RATE}%`, margin, yPos);
     yPos += 7;
+    doc.setTextColor(255, 69, 0);
     doc.setFontSize(14);
+    doc.text(`Tax Owed: $${totalTax.toFixed(2)}`, margin, yPos);
+    doc.setTextColor(0, 0, 0);
+    yPos += 10;
+    
+    // Net After Tax
+    const netAfterTax = netProfit - totalTax;
     doc.setTextColor(0, 100, 200);
+    doc.setFontSize(16);
     doc.text(`Net After Tax: $${netAfterTax.toFixed(2)}`, margin, yPos);
     doc.setTextColor(0, 0, 0);
     yPos += 15;
 
-    // Transaction Tax Breakdown
+    // Transaction Details
     if (yPos > pageHeight - 20) {
       doc.addPage();
       yPos = margin;
     }
     
     doc.setFontSize(16);
-    doc.text('Detailed Tax Breakdown', margin, yPos);
+    doc.text('Transaction Details', margin, yPos);
     yPos += 10;
     
-    // Group transactions by type
-    const buyTransactions = transactions.filter(t => t.type.includes('buy') || t.type.includes('deposit') || t.type.includes('receive'));
-    const sellTransactions = transactions.filter(t => t.type.includes('sell') || t.type.includes('withdraw') || t.type.includes('send'));
-    const swapTransactions = transactions.filter(t => t.type.includes('swap'));
+    doc.setFontSize(9);
+    doc.text('Method | ETH Amount | USD Value | Date', margin, yPos);
+    yPos += 7;
     
-    // Buys breakdown
-    if (buyTransactions.length > 0) {
-      doc.setFontSize(14);
-      doc.text('Buys/Deposits (Not Taxable)', margin, yPos);
-      yPos += 8;
-      doc.setFontSize(9);
-      
-      for (const tx of buyTransactions) {
-        if (yPos > pageHeight - 10) {
-          doc.addPage();
-          yPos = margin;
-        }
-        doc.text(`  ${tx.type.toUpperCase()}: $${tx.value.toFixed(2)} | Tax: $${tx.taxAmount.toFixed(2)}`, margin, yPos);
-        yPos += 5;
+    for (const tx of transactions) {
+      if (yPos > pageHeight - 10) {
+        doc.addPage();
+        yPos = margin;
       }
+      const line = `${tx.type} | ${tx.amount.toFixed(4)} ETH | $${tx.value.toFixed(2)} | ${tx.date || 'N/A'}`;
+      doc.text(line, margin, yPos);
       yPos += 5;
     }
-    
-    // Sells breakdown
-    if (sellTransactions.length > 0) {
-      if (yPos > pageHeight - 20) {
-        doc.addPage();
-        yPos = margin;
-      }
-      doc.setFontSize(14);
-      doc.text('Sells/Withdrawals (Taxable)', margin, yPos);
-      yPos += 8;
-      doc.setFontSize(9);
-      
-      const sellTax = sellTransactions.reduce((sum, tx) => sum + tx.taxAmount, 0);
-      for (const tx of sellTransactions) {
-        if (yPos > pageHeight - 10) {
-          doc.addPage();
-          yPos = margin;
-        }
-        doc.setTextColor(255, 69, 0);
-        doc.text(`  ${tx.type.toUpperCase()}: $${tx.value.toFixed(2)} | Tax Rate: ${tx.taxRate}% | Tax: $${tx.taxAmount.toFixed(2)}`, margin, yPos);
-        doc.setTextColor(0, 0, 0);
-        yPos += 5;
-      }
-      doc.setFontSize(11);
-      doc.setTextColor(255, 69, 0);
-      doc.text(`Subtotal Tax: $${sellTax.toFixed(2)}`, margin + 5, yPos);
-      doc.setTextColor(0, 0, 0);
-      yPos += 8;
-    }
-    
-    // Swaps breakdown
-    if (swapTransactions.length > 0) {
-      if (yPos > pageHeight - 20) {
-        doc.addPage();
-        yPos = margin;
-      }
-      doc.setFontSize(14);
-      doc.text('Swaps (Taxable)', margin, yPos);
-      yPos += 8;
-      doc.setFontSize(9);
-      
-      const swapTax = swapTransactions.reduce((sum, tx) => sum + tx.taxAmount, 0);
-      for (const tx of swapTransactions) {
-        if (yPos > pageHeight - 10) {
-          doc.addPage();
-          yPos = margin;
-        }
-        doc.setTextColor(255, 69, 0);
-        doc.text(`  ${tx.type.toUpperCase()}: $${tx.value.toFixed(2)} | Tax Rate: ${tx.taxRate}% | Tax: $${tx.taxAmount.toFixed(2)}`, margin, yPos);
-        doc.setTextColor(0, 0, 0);
-        yPos += 5;
-      }
-      doc.setFontSize(11);
-      doc.setTextColor(255, 69, 0);
-      doc.text(`Subtotal Tax: $${swapTax.toFixed(2)}`, margin + 5, yPos);
-      doc.setTextColor(0, 0, 0);
-      yPos += 8;
-    }
+    yPos += 10;
 
     // All Transactions
     if (yPos > pageHeight - 20) {
@@ -446,6 +449,23 @@ const SimpleCalculator = () => {
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Average Buy Price Input */}
+            <div className="space-y-2">
+              <Label htmlFor="cost-basis">Average Buy Price per ETH (USD)</Label>
+              <Input
+                id="cost-basis"
+                type="number"
+                value={costBasisInput}
+                onChange={(e) => handleCostBasisChange(e.target.value)}
+                placeholder="2500"
+                min="0"
+                step="0.01"
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter your average purchase price per ETH in USD. Invalid inputs will default to $2,500.
+              </p>
             </div>
 
             {/* Tax Jurisdiction */}
