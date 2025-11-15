@@ -1,46 +1,33 @@
-import { createConfig, configureChains } from 'wagmi'
+import { createConfig, http } from 'wagmi'
 import { mainnet, base } from 'wagmi/chains'
-import { jsonRpcProvider } from 'wagmi/providers/jsonRpc'
-import { InjectedConnector } from 'wagmi/connectors/injected'
-import { MetaMaskConnector } from 'wagmi/connectors/metaMask'
-import { WalletConnectConnector } from 'wagmi/connectors/walletConnect'
+import { injected, metaMask, walletConnect } from 'wagmi/connectors'
 
 // Get WalletConnect Project ID from environment variables
 const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
 
-const { chains, publicClient, webSocketPublicClient } = configureChains(
-  [mainnet, base],
-  [
-    jsonRpcProvider({
-      rpc: (chain) => ({
-        http: `https://${chain.id}.rpc.thirdweb.com`,
-      }),
-    }),
-  ]
-)
+const chains = [mainnet, base]
 
 export const config = createConfig({
-  autoConnect: true,
+  chains,
   connectors: [
-    new InjectedConnector({ chains }),
-    new MetaMaskConnector({ chains }),
+    injected(),
+    metaMask(),
     // Only include WalletConnect if project ID is configured
-    ...(walletConnectProjectId ? [new WalletConnectConnector({
-      chains,
-      options: {
-        projectId: walletConnectProjectId,
-        metadata: {
-          name: 'KryptoGain',
-          description: 'Crypto Tax Calculator',
-          url: window.location.origin,
-          icons: [`${window.location.origin}/Logo.png`]
-        },
-        showQrModal: true
-      }
+    ...(walletConnectProjectId ? [walletConnect({
+      projectId: walletConnectProjectId,
+      metadata: {
+        name: 'KryptoGain',
+        description: 'Crypto Tax Calculator',
+        url: window.location.origin,
+        icons: [`${window.location.origin}/Logo.png`]
+      },
+      showQrModal: true,
     })] : []),
   ],
-  publicClient,
-  webSocketPublicClient,
+  transports: {
+    [mainnet.id]: http(`https://1.rpc.thirdweb.com`),
+    [base.id]: http(`https://8453.rpc.thirdweb.com`),
+  },
 })
 
 export { chains }

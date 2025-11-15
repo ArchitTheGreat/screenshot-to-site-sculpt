@@ -534,7 +534,7 @@ const SimpleCalculator = () => {
                 className="w-full gap-2"
                 asChild
               >
-                <a href="https://payment-link.example.com" target="_blank" rel="noopener noreferrer">
+                <a href="https://nowpayments.io/payment/?iid=4583571841" target="_blank" rel="noopener noreferrer">
                   Pay Now
                   <ExternalLink className="h-4 w-4" />
                 </a>
