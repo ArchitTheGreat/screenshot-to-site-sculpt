@@ -7,7 +7,6 @@ import { WagmiConfig } from 'wagmi';
 import { config } from './config/wagmi';
 import Index from "./pages/Index";
 import Calculator from "./pages/Calculator";
-import SimpleCalculator from "./pages/SimpleCalculator";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,7 +21,6 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/calculator" element={<Calculator />} />
-            <Route path="/simple-calculator" element={<SimpleCalculator />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
