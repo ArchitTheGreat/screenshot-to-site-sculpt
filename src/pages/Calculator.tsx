@@ -8,11 +8,52 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wallet, CalendarIcon, Loader2, CheckCircle2 } from 'lucide-react';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { ArrowLeft, Wallet, CalendarIcon, Loader2, CheckCircle2, ExternalLink } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+interface EtherscanTransaction {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  nonce: string;
+  blockHash: string;
+  transactionIndex: string;
+  from: string;
+  to: string;
+  value: string;
+  gas: string;
+  gasPrice: string;
+  isError: string;
+  txreceipt_status: string;
+  input: string;
+  contractAddress: string;
+  cumulativeGasUsed: string;
+  gasUsed: string;
+  confirmations: string;
+  methodId: string;
+  functionName: string;
+}
+
+interface Transaction {
+  type: string; // e.g., 'buy', 'sell', 'transfer'
+  amount: number; // ETH amount
+  value: number; // USD value at time of transaction
+  date: Date; // Transaction date
+  taxAmount: number;
+  taxRate: number;
+}
+
+interface TaxJurisdiction {
+  name: string;
+  shortTermRate: number;
+  longTermRate: number;
+  description: string;
+}
 
 const Calculator = () => {
   const navigate = useNavigate();
@@ -27,6 +68,15 @@ const Calculator = () => {
   const [loading, setLoading] = useState(false);
   const [txCount, setTxCount] = useState(0);
   const [walletAddress, setWalletAddress] = useState<string>('');
+  const [hasPaid, setHasPaid] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [netProfit, setNetProfit] = useState<number>(0);
+  const [totalBuys, setTotalBuys] = useState<number>(0);
+  const [totalSells, setTotalSells] = useState<number>(0);
+  const [totalTax, setTotalTax] = useState<number>(0);
+  const [jurisdiction, setJurisdiction] = useState<string>('us-short');
+  const [costBasisPerEth, setCostBasisPerEth] = useState<number>(2500);
+  const [costBasisInput, setCostBasisInput] = useState<string>('2500');
 
   useEffect(() => {
     if (isConnected && address) {
@@ -115,6 +165,168 @@ const Calculator = () => {
     } catch {
       return 0;
     }
+  };
+
+  const handleCostBasisChange = (value: string) => {
+    setCostBasisInput(value);
+    const parsedValue = parseFloat(value);
+    
+    if (isNaN(parsedValue) || parsedValue <= 0) {
+      console.warn('Invalid cost basis input, using default $2500');
+      setCostBasisPerEth(2500);
+    } else {
+      setCostBasisPerEth(parsedValue);
+    }
+  };
+
+  const taxJurisdictions: Record<string, TaxJurisdiction> = {
+    'us-short': {
+      name: 'US Short-Term Capital Gains',
+      shortTermRate: 37,
+      longTermRate: 37,
+      description: 'Applies to assets held less than 1 year'
+    },
+    'us-long': {
+      name: 'US Long-Term Capital Gains',
+      shortTermRate: 20,
+      longTermRate: 20,
+      description: 'Applies to assets held more than 1 year'
+    },
+    'flat-30': {
+      name: 'Flat Rate 30%',
+      shortTermRate: 30,
+      longTermRate: 30,
+      description: 'Standard flat tax rate'
+    },
+    'flat-20': {
+      name: 'Flat Rate 20%',
+      shortTermRate: 20,
+      longTermRate: 20,
+      description: 'Lower flat tax rate'
+    }
+  };
+
+  // Hardcoded Etherscan API key
+  const ETHERSCAN_API_KEY = import.meta.env.VITE_ETHERSCAN_API_KEY;
+
+  const fetchEtherscanTransactions = async () => {
+    if (!walletAddress) {
+      toast({
+        title: "Missing Wallet Address",
+        description: "Please enter an Ethereum wallet address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!fromDate || !toDate) {
+      toast({
+        title: "Missing Date Range",
+        description: "Please select a date range.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    setTransactions([]);
+    setNetProfit(0);
+    setTotalBuys(0);
+    setTotalSells(0);
+    setTotalTax(0);
+
+    try {
+      const allTransactions: Transaction[] = [];
+      const start = new Date(fromDate);
+      const end = new Date(toDate);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const startTimestamp = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0).getTime() / 1000);
+        const endTimestamp = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).getTime() / 1000);
+        const apiUrl = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${walletAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${ETHERSCAN_API_KEY}&starttimestamp=${startTimestamp}&endtimestamp=${endTimestamp}`;
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        if (data.status === "1" && data.result.length > 0) {
+          const dayTransactions: Transaction[] = data.result.map((tx: EtherscanTransaction) => ({
+            type: tx.value === "0" ? "transfer" : (tx.to.toLowerCase() === walletAddress.toLowerCase() ? "buy" : "sell"),
+            amount: parseFloat((parseInt(tx.value) / 1e18).toFixed(6)),
+            value: 0,
+            date: new Date(parseInt(tx.timeStamp) * 1000),
+            taxAmount: 0,
+            taxRate: 0,
+          }));
+          allTransactions.push(...dayTransactions);
+        }
+      }
+      setTransactions(allTransactions);
+      calculateMetrics(allTransactions, costBasisPerEth);
+      toast({
+        title: "Transactions Fetched",
+        description: `Loaded ${allTransactions.length} transactions from Etherscan.`,
+      });
+    } catch (error) {
+      console.error("Error fetching Etherscan transactions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch transactions from Etherscan. Please check your wallet address and API key.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateTransactionTax = (type: string, value: number): { taxAmount: number; taxRate: number } => {
+    const currentJurisdiction = taxJurisdictions[jurisdiction];
+    let taxRate = currentJurisdiction.shortTermRate;
+    
+    // For sells and swaps, apply the tax rate
+    if (type.includes('sell') || type.includes('swap') || type.includes('withdraw') || type.includes('send')) {
+      taxRate = currentJurisdiction.shortTermRate;
+      const taxAmount = (value * taxRate) / 100;
+      return { taxAmount, taxRate };
+    }
+    
+    // No tax on buys/deposits
+    return { taxAmount: 0, taxRate: 0 };
+  };
+
+  const calculateMetrics = (transactions: Transaction[], costBasis: number) => {
+    let totalEthSent = 0;
+    let totalUsdValue = 0;
+    let totalTaxOwed = 0;
+    const currentJurisdiction = taxJurisdictions[jurisdiction];
+
+    for (const tx of transactions) {
+      // Simple heuristic for buy/sell based on 'to' address. Needs refinement for complex scenarios.
+      // Assuming 'value' from Etherscan is in Wei and needs conversion to ETH, then USD value estimation
+
+      // For simplicity, let's assume a fixed ETH price for now for USD value calculation from ETH amount
+      // In a real app, you'd fetch historical ETH prices for each transaction date.
+      const estimatedEthPrice = costBasis; // Using cost basis as a placeholder for ETH price
+
+      if (tx.type === "sell") {
+        totalEthSent -= tx.amount;
+        tx.value = tx.amount * estimatedEthPrice; // Estimate USD value for sell
+        totalUsdValue += tx.value;
+        const { taxAmount, taxRate } = calculateTransactionTax(tx.type, tx.value);
+        tx.taxAmount = taxAmount;
+        tx.taxRate = taxRate;
+        totalTaxOwed += taxAmount;
+      } else if (tx.type === "buy") {
+        totalEthSent += tx.amount;
+        tx.value = tx.amount * estimatedEthPrice; // Estimate USD value for buy
+        totalUsdValue -= tx.value; // Buys decrease USD value for profit calculation
+      }
+    }
+
+    const costBasisTotal = totalEthSent * costBasis;
+    const gainLossUsd = totalUsdValue + costBasisTotal; // Adjusted for buys/sells
+    const taxOwedUsd = totalTaxOwed; // Already accumulated
+
+    setNetProfit(gainLossUsd);
+    setTotalBuys(0); // This needs to be re-evaluated based on how we define totalBuys with API data
+    setTotalSells(totalUsdValue); // This needs to be re-evaluated based on how we define totalSells with API data
+    setTotalTax(taxOwedUsd);
   };
 
   const calculateTax = async () => {
@@ -412,8 +624,48 @@ const Calculator = () => {
               </>
             )}
 
-            {/* Generate Report Button */}
-            {calculatedTax === null && !loading && (
+            {/* Payment Section */}
+            <div className="border-t pt-6 space-y-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="payment" 
+                  checked={hasPaid}
+                  onCheckedChange={(checked) => setHasPaid(checked as boolean)}
+                />
+                <Label 
+                  htmlFor="payment" 
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  I have paid $15
+                </Label>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                asChild
+              >
+                <a href="https://nowpayments.io/payment/?iid=4583571841" target="_blank" rel="noopener noreferrer">
+                  Pay Now
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </Button>
+            </div>
+
+            {/* Generate Button */}
+            {hasPaid && (
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={!walletAddress || !fromDate || !toDate || loading}
+                onClick={fetchEtherscanTransactions}
+              >
+                Generate PDF Report
+              </Button>
+            )}
+
+            {/* Legacy Generate Report Button */}
+            {!hasPaid && calculatedTax === null && !loading && transactions.length === 0 && (
               <>
                 <Separator />
                 <Button
@@ -422,7 +674,7 @@ const Calculator = () => {
                   disabled={!((address || walletAddress) && fromDate && toDate)}
                   onClick={calculateTax}
                 >
-                  Generate Tax Report
+                  Generate Tax Report (Legacy)
                 </Button>
               </>
             )}

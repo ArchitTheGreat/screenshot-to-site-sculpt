@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -6,15 +6,42 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, FileText, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ExternalLink, CalendarIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+interface EtherscanTransaction {
+  blockNumber: string;
+  timeStamp: string;
+  hash: string;
+  nonce: string;
+  blockHash: string;
+  transactionIndex: string;
+  from: string;
+  to: string;
+  value: string;
+  gas: string;
+  gasPrice: string;
+  isError: string;
+  txreceipt_status: string;
+  input: string;
+  contractAddress: string;
+  cumulativeGasUsed: string;
+  gasUsed: string;
+  confirmations: string;
+  methodId: string;
+  functionName: string;
+}
 
 interface Transaction {
-  type: string;
-  amount: number;
-  value: number;
-  date?: string;
+  type: string; // e.g., 'buy', 'sell', 'transfer'
+  amount: number; // ETH amount
+  value: number; // USD value at time of transaction
+  date: Date; // Transaction date
   taxAmount: number;
   taxRate: number;
 }
@@ -28,16 +55,16 @@ interface TaxJurisdiction {
 
 const SimpleCalculator = () => {
   const navigate = useNavigate();
-  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string>('');
   const [hasPaid, setHasPaid] = useState(false);
-  const [csvData, setCsvData] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [netProfit, setNetProfit] = useState<number>(0);
   const [totalBuys, setTotalBuys] = useState<number>(0);
   const [totalSells, setTotalSells] = useState<number>(0);
   const [totalTax, setTotalTax] = useState<number>(0);
   const [jurisdiction, setJurisdiction] = useState<string>('us-short');
-  const [dragActive, setDragActive] = useState(false);
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to?: Date | undefined }>({ from: undefined, to: undefined });
+  const [loading, setLoading] = useState<boolean>(false);
   const [costBasisPerEth, setCostBasisPerEth] = useState<number>(2500);
   const [costBasisInput, setCostBasisInput] = useState<string>('2500');
 
@@ -96,152 +123,50 @@ const SimpleCalculator = () => {
     return { taxAmount: 0, taxRate: 0 };
   };
 
-  const processFile = (file: File) => {
-    if (file && file.name.toLowerCase().endsWith('.csv')) {
-      setCsvFile(file);
-      
-      // Read CSV file
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
-        setCsvData(rows);
-        
-        // Calculate profit/loss and taxes based on ETH transactions
-        if (rows.length > 1) {
-          const headers = rows[0].map(h => h.toLowerCase());
-          
-          // Find column indices - matching the CSV format described
-          const methodIndex = headers.findIndex(h => h.includes('method'));
-          const amountIndex = headers.findIndex(h => h.includes('amount') && !h.includes('value'));
-          const valueIndex = headers.findIndex(h => h.includes('value') && h.includes('usd'));
-          const feeIndex = headers.findIndex(h => h.includes('txn fee') || h.includes('fee'));
-          const dateIndex = headers.findIndex(h => h.includes('datetime'));
-          
-          let totalEthSent = 0;
-          let totalUsdValue = 0;
-          let totalFeesEth = 0;
-          let totalGasFeesUsd = 0;
-          const parsedTransactions: Transaction[] = [];
-          
-          for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            if (row.length <= 1) continue; // Skip empty rows
-            
-            // Parse Amount (remove " ETH" suffix)
-            const amountStr = row[amountIndex] || '0';
-            const ethAmount = parseFloat(amountStr.replace(/[^0-9.-]/g, ''));
-            
-            // Parse Value (USD) (remove "$" prefix)
-            const valueStr = row[valueIndex] || '0';
-            const usdValue = parseFloat(valueStr.replace(/[^0-9.-]/g, ''));
-            
-            // Parse Txn Fee (remove " ETH" suffix)
-            const feeStr = row[feeIndex] || '0';
-            const feeEth = parseFloat(feeStr.replace(/[^0-9.-]/g, ''));
-            
-            // Skip invalid rows
-            if (isNaN(ethAmount) || isNaN(usdValue)) continue;
-            
-            // Calculate gas fee in USD: fee(ETH) × (Value ÷ Amount)
-            let gasFeeUsd = 0;
-            if (ethAmount !== 0 && !isNaN(feeEth)) {
-              const ethPriceEstimate = usdValue / ethAmount;
-              gasFeeUsd = feeEth * ethPriceEstimate;
-            }
-            
-            const method = row[methodIndex] || 'unknown';
-            const date = dateIndex >= 0 ? row[dateIndex] : '';
-            
-            // Accumulate totals
-            totalEthSent += ethAmount;
-            totalUsdValue += usdValue;
-            totalFeesEth += feeEth;
-            totalGasFeesUsd += gasFeeUsd;
-            
-            const transaction: Transaction = {
-              type: method,
-              amount: ethAmount,
-              value: usdValue,
-              date,
-              taxAmount: 0, // Will calculate after
-              taxRate: 0
-            };
-            
-            parsedTransactions.push(transaction);
-          }
-          
-          // Use user-provided cost basis per ETH, with validation
-          let COST_BASIS_PER_ETH = costBasisPerEth;
-          const TAX_RATE = 0.30; // 30%
-          
-          // Calculate profit/loss
-          const costBasisTotal = totalEthSent * COST_BASIS_PER_ETH;
-          const gainLossUsd = totalUsdValue - costBasisTotal;
-          const taxOwedUsd = Math.max(0, gainLossUsd * TAX_RATE);
-          
-          // Update transactions with tax info
-          const taxPerTransaction = parsedTransactions.length > 0 ? taxOwedUsd / parsedTransactions.length : 0;
-          parsedTransactions.forEach(tx => {
-            tx.taxAmount = taxPerTransaction;
-            tx.taxRate = TAX_RATE * 100;
-          });
-          
-          setTransactions(parsedTransactions);
-          setTotalBuys(costBasisTotal);
-          setTotalSells(totalUsdValue);
-          setNetProfit(gainLossUsd);
-          setTotalTax(taxOwedUsd);
-        }
-        
-        toast({
-          title: "CSV Uploaded",
-          description: `Loaded ${rows.length - 1} transactions`,
-        });
-      };
-      reader.readAsText(file);
-    } else {
-      toast({
-        title: "Invalid File",
-        description: "Please upload a CSV file",
-        variant: "destructive",
-      });
-    }
-  };
+  const calculateMetrics = (transactions: Transaction[], costBasis: number) => {
+    let totalEthSent = 0;
+    let totalUsdValue = 0;
+    let totalTaxOwed = 0;
+    const currentJurisdiction = taxJurisdictions[jurisdiction];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processFile(file);
-    }
-  };
+    for (const tx of transactions) {
+      // Simple heuristic for buy/sell based on 'to' address. Needs refinement for complex scenarios.
+      // Assuming 'value' from Etherscan is in Wei and needs conversion to ETH, then USD value estimation
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
+      // For simplicity, let's assume a fixed ETH price for now for USD value calculation from ETH amount
+      // In a real app, you'd fetch historical ETH prices for each transaction date.
+      const estimatedEthPrice = costBasis; // Using cost basis as a placeholder for ETH price
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+      if (tx.type === "sell") {
+        totalEthSent -= tx.amount;
+        tx.value = tx.amount * estimatedEthPrice; // Estimate USD value for sell
+        totalUsdValue += tx.value;
+        const { taxAmount, taxRate } = calculateTransactionTax(tx.type, tx.value);
+        tx.taxAmount = taxAmount;
+        tx.taxRate = taxRate;
+        totalTaxOwed += taxAmount;
+      } else if (tx.type === "buy") {
+        totalEthSent += tx.amount;
+        tx.value = tx.amount * estimatedEthPrice; // Estimate USD value for buy
+        totalUsdValue -= tx.value; // Buys decrease USD value for profit calculation
+      }
     }
-  };
 
+    const costBasisTotal = totalEthSent * costBasis;
+    const gainLossUsd = totalUsdValue + costBasisTotal; // Adjusted for buys/sells
+    const taxOwedUsd = totalTaxOwed; // Already accumulated
+
+    setNetProfit(gainLossUsd);
+    setTotalBuys(0); // This needs to be re-evaluated based on how we define totalBuys with API data
+    setTotalSells(totalUsdValue); // This needs to be re-evaluated based on how we define totalSells with API data
+    setTotalTax(taxOwedUsd);
+  };
 
   const generatePDF = () => {
-    if (!csvFile || csvData.length === 0) {
+    if (transactions.length === 0) {
       toast({
         title: "No Data",
-        description: "Please upload a CSV file first",
+        description: "No transactions to generate a report for.",
         variant: "destructive",
       });
       return;
@@ -264,7 +189,7 @@ const SimpleCalculator = () => {
     yPos += 15;
     
     doc.setFontSize(11);
-    doc.text(`File: ${csvFile.name}`, margin, yPos);
+
     yPos += 7;
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
     yPos += 7;
@@ -341,35 +266,7 @@ const SimpleCalculator = () => {
     }
     yPos += 10;
 
-    // All Transactions
-    if (yPos > pageHeight - 20) {
-      doc.addPage();
-      yPos = margin;
-    }
-    
-    doc.setFontSize(16);
-    doc.text('Complete Transaction List', margin, yPos);
-    yPos += 10;
-    
-    doc.setFontSize(8);
-    for (let i = 0; i < csvData.length; i++) {
-      if (yPos > pageHeight) {
-        doc.addPage();
-        yPos = margin;
-      }
-      const row = csvData[i].join(' | ');
-      const wrappedRow = doc.splitTextToSize(row, 170);
-      for (let line of wrappedRow) {
-        if (yPos > pageHeight) {
-          doc.addPage();
-          yPos = margin;
-        }
-        doc.text(line, margin, yPos);
-        yPos += 5;
-      }
-      yPos += 2;
-    }
-    
+
     // Download
     doc.save(`kryptogain-tax-report-${Date.now()}.pdf`);
     
@@ -378,6 +275,82 @@ const SimpleCalculator = () => {
       description: "Your comprehensive tax report has been downloaded.",
     });
   };
+
+  // Hardcoded Etherscan API key
+  const ETHERSCAN_API_KEY = import.meta.env.VITE_ETHERSCAN_API_KEY;
+
+  const fetchEtherscanTransactions = async () => {
+    if (!walletAddress) {
+      toast({
+        title: "Missing Wallet Address",
+        description: "Please enter an Ethereum wallet address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!dateRange.from || !dateRange.to) {
+      toast({
+        title: "Missing Date Range",
+        description: "Please select a date range.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    setTransactions([]);
+    setNetProfit(0);
+    setTotalBuys(0);
+    setTotalSells(0);
+    setTotalTax(0);
+
+    try {
+      const allTransactions: Transaction[] = [];
+      const start = new Date(dateRange.from);
+      const end = new Date(dateRange.to);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const startTimestamp = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0).getTime() / 1000);
+        const endTimestamp = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).getTime() / 1000);
+        const apiUrl = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${walletAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${ETHERSCAN_API_KEY}&starttimestamp=${startTimestamp}&endtimestamp=${endTimestamp}`;
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        if (data.status === "1" && data.result.length > 0) {
+          const dayTransactions: Transaction[] = data.result.map((tx: EtherscanTransaction) => ({
+            type: tx.value === "0" ? "transfer" : (tx.to.toLowerCase() === walletAddress.toLowerCase() ? "buy" : "sell"),
+            amount: parseFloat((parseInt(tx.value) / 1e18).toFixed(6)),
+            value: 0,
+            date: new Date(parseInt(tx.timeStamp) * 1000),
+            taxAmount: 0,
+            taxRate: 0,
+          }));
+          allTransactions.push(...dayTransactions);
+        }
+      }
+      setTransactions(allTransactions);
+      calculateMetrics(allTransactions, costBasisPerEth);
+      toast({
+        title: "Transactions Fetched",
+        description: `Loaded ${allTransactions.length} transactions from Etherscan.`,
+      });
+    } catch (error) {
+      console.error("Error fetching Etherscan transactions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch transactions from Etherscan. Please check your wallet address and API key.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Calculate metrics whenever transactions or costBasisPerEth changes
+    if (transactions.length > 0) {
+      calculateMetrics(transactions, costBasisPerEth);
+    }
+  }, [transactions, costBasisPerEth]);
 
   return (
     <div className="min-h-screen bg-background px-4 sm:px-6 md:px-8 py-8 sm:py-12 md:py-16">
@@ -403,52 +376,55 @@ const SimpleCalculator = () => {
         {/* Upload Section */}
         <Card className="p-6 sm:p-8 mb-8">
           <h2 className="font-serif text-fluid-2xl font-semibold mb-6">
-            Upload CSV
+            Generate your Crypto Tax Report
           </h2>
 
           <div className="space-y-6">
-            {/* File Upload */}
+            {/* Wallet Address Input */}
             <div className="space-y-2">
-              <Label htmlFor="csv-upload">Transaction CSV File</Label>
-              <div
-                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-all ${
-                  dragActive
-                    ? 'border-primary bg-primary/5 scale-[1.02]'
-                    : 'border-border hover:border-primary/50 hover:bg-accent/50'
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileUpload}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <div className="flex flex-col items-center gap-3">
-                  <div className={`p-3 rounded-full bg-primary/10 transition-transform ${dragActive ? 'scale-110' : ''}`}>
-                    <Upload className={`h-6 w-6 transition-colors ${dragActive ? 'text-primary' : 'text-muted-foreground'}`} />
-                  </div>
-                  {csvFile ? (
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <FileText className="h-4 w-4 text-primary" />
-                      <span>{csvFile.name}</span>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-sm font-medium text-foreground">
-                        {dragActive ? 'Drop your CSV file here' : 'Drag & drop your CSV file here'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        or click to browse
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
+              <Label htmlFor="wallet-address">Ethereum Wallet Address</Label>
+              <Input
+                id="wallet-address"
+                type="text"
+                value={walletAddress}
+                onChange={(e) => setWalletAddress(e.target.value)}
+                placeholder="0xAbc123..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter the Ethereum wallet address to fetch transactions.
+              </p>
+            </div>
+
+            {/* Date Range Picker */}
+            <div className="space-y-2">
+              <Label htmlFor="date-range-selector">Select Date Range</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !dateRange.from && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRange.from && dateRange.to
+                      ? `${format(dateRange.from, "PPP")} - ${format(dateRange.to, "PPP")}`
+                      : <span className="font-normal">Pick a date range</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={setDateRange}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-muted-foreground">
+                Select a custom date range to fetch transactions.
+              </p>
             </div>
 
             {/* Average Buy Price Input */}
@@ -489,7 +465,7 @@ const SimpleCalculator = () => {
             </div>
 
             {/* Tax Summary Preview */}
-            {csvFile && transactions.length > 0 && (
+            {transactions.length > 0 && (
               <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
                 <h3 className="font-semibold text-sm">Tax Preview</h3>
                 <div className="space-y-1 text-sm">
@@ -546,8 +522,8 @@ const SimpleCalculator = () => {
               <Button
                 size="lg"
                 className="w-full"
-                disabled={!csvFile}
-                onClick={generatePDF}
+                disabled={transactions.length === 0 || loading}
+                onClick={fetchEtherscanTransactions}
               >
                 Generate PDF Report
               </Button>
