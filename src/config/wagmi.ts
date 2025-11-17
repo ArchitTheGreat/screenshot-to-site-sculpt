@@ -5,10 +5,8 @@ import { injected, metaMask, walletConnect } from 'wagmi/connectors'
 // Get WalletConnect Project ID from environment variables
 const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
 
-const chains = [mainnet, base]
-
 export const config = createConfig({
-  chains,
+  chains: [mainnet, base] as const,
   connectors: [
     injected(),
     metaMask(),
@@ -29,5 +27,3 @@ export const config = createConfig({
     [base.id]: http(`https://8453.rpc.thirdweb.com`),
   },
 })
-
-export { chains }
