@@ -98,13 +98,14 @@ const Calculator = () => {
     }
   };
 
-  const calculateTransactionTax = (type: string, value: number): { taxAmount: number; taxRate: number } => {
+  const calculateTransactionTax = (type: string, sellValueUSD: number, buyValueUSD: number): { taxAmount: number; taxRate: number } => {
     const currentJurisdiction = taxJurisdictions[jurisdiction];
     let taxRate = currentJurisdiction.shortTermRate;
     
     if (type.includes('sell') || type.includes('swap') || type.includes('withdraw') || type.includes('send')) {
       taxRate = currentJurisdiction.shortTermRate;
-      const taxAmount = (value * taxRate) / 100;
+      const gain = sellValueUSD - buyValueUSD;
+      const taxAmount = Math.max(gain, 0) * (taxRate / 100);
       return { taxAmount, taxRate };
     }
     
@@ -123,7 +124,7 @@ const Calculator = () => {
         totalEthSent -= tx.amount;
         tx.value = tx.amount * estimatedEthPrice;
         totalUsdValue += tx.value;
-        const { taxAmount, taxRate } = calculateTransactionTax(tx.type, tx.value);
+        const { taxAmount, taxRate } = calculateTransactionTax(tx.type, tx.value, tx.amount * costBasis);
         tx.taxAmount = taxAmount;
         tx.taxRate = taxRate;
         totalTaxOwed += taxAmount;
