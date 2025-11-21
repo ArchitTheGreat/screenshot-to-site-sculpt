@@ -15,14 +15,38 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import Papa from 'papaparse';
+import Decimal from 'decimal.js';
 
-interface Transaction {
-  type: string;
-  amount: number;
-  value: number;
+// Configure Decimal.js for precision
+Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
+
+interface ParsedTransaction {
   date: Date;
-  taxAmount: number;
-  taxRate: number;
+  type: 'BUY' | 'SELL';
+  symbol: string;
+  amount: Decimal;
+  price: Decimal;
+  value: Decimal;
+}
+
+interface TaxLot {
+  date: Date;
+  amount: Decimal;
+  costBasis: Decimal;
+}
+
+interface TaxableEvent {
+  date: Date;
+  symbol: string;
+  type: 'SHORT_TERM' | 'LONG_TERM';
+  sellAmount: Decimal;
+  sellPrice: Decimal;
+  costBasis: Decimal;
+  pnl: Decimal;
+  taxAmount: Decimal;
+  isTaxable: boolean;
 }
 
 interface TaxJurisdiction {
@@ -40,18 +64,16 @@ const Calculator = () => {
   
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [hasPaid, setHasPaid] = useState(false);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [netProfit, setNetProfit] = useState<number>(0);
-  const [totalBuys, setTotalBuys] = useState<number>(0);
-  const [totalSells, setTotalSells] = useState<number>(0);
-  const [totalTax, setTotalTax] = useState<number>(0);
-  const [jurisdiction, setJurisdiction] = useState<string>('us-short');
+  const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
+  const [taxableEvents, setTaxableEvents] = useState<TaxableEvent[]>([]);
+  const [totalShortTermGains, setTotalShortTermGains] = useState<Decimal>(new Decimal(0));
+  const [totalLongTermGains, setTotalLongTermGains] = useState<Decimal>(new Decimal(0));
+  const [totalTax, setTotalTax] = useState<Decimal>(new Decimal(0));
+  const [jurisdiction, setJurisdiction] = useState<string>('us-mixed');
   const [dateRange, setDateRange] = useState<{ from: Date | undefined; to?: Date | undefined }>({ from: undefined, to: undefined });
   const [loading, setLoading] = useState<boolean>(false);
-  const [costBasisPerEth, setCostBasisPerEth] = useState<number>(2500);
-  const [costBasisInput, setCostBasisInput] = useState<string>('2500');
   const [dragActive, setDragActive] = useState(false);
-  const [inputMethod, setInputMethod] = useState<'wallet' | 'csv'>('wallet');
+  const [inputMethod, setInputMethod] = useState<'wallet' | 'csv'>('csv');
 
   useEffect(() => {
     if (isConnected && address) {
@@ -59,30 +81,24 @@ const Calculator = () => {
     }
   }, [isConnected, address]);
 
-  const handleCostBasisChange = (value: string) => {
-    setCostBasisInput(value);
-    const parsedValue = parseFloat(value);
-    
-    if (isNaN(parsedValue) || parsedValue <= 0) {
-      console.warn('Invalid cost basis input, using default $2500');
-      setCostBasisPerEth(2500);
-    } else {
-      setCostBasisPerEth(parsedValue);
-    }
-  };
-
   const taxJurisdictions: Record<string, TaxJurisdiction> = {
+    'us-mixed': {
+      name: 'US Capital Gains (Mixed)',
+      shortTermRate: 37,
+      longTermRate: 20,
+      description: 'Short-term (≤1 year): 37% | Long-term (>1 year): 20%'
+    },
     'us-short': {
-      name: 'US Short-Term Capital Gains',
+      name: 'US Short-Term Only',
       shortTermRate: 37,
       longTermRate: 37,
-      description: 'Applies to assets held less than 1 year'
+      description: 'All gains taxed at 37%'
     },
     'us-long': {
-      name: 'US Long-Term Capital Gains',
+      name: 'US Long-Term Only',
       shortTermRate: 20,
       longTermRate: 20,
-      description: 'Applies to assets held more than 1 year'
+      description: 'All gains taxed at 20%'
     },
     'flat-30': {
       name: 'Flat Rate 30%',
@@ -98,97 +114,160 @@ const Calculator = () => {
     }
   };
 
-  const calculateTransactionTax = (type: string, sellValueUSD: number, buyValueUSD: number): { taxAmount: number; taxRate: number } => {
+  // FIFO matching algorithm
+  const calculateTaxWithFIFO = (transactions: ParsedTransaction[]): TaxableEvent[] => {
+    const taxEvents: TaxableEvent[] = [];
+    const lots: TaxLot[] = [];
     const currentJurisdiction = taxJurisdictions[jurisdiction];
-    let taxRate = currentJurisdiction.shortTermRate;
-    
-    if (type.includes('sell') || type.includes('swap') || type.includes('withdraw') || type.includes('send')) {
-      taxRate = currentJurisdiction.shortTermRate;
-      const gain = sellValueUSD - buyValueUSD;
-      const taxAmount = Math.max(gain, 0) * (taxRate / 100);
-      return { taxAmount, taxRate };
-    }
-    
-    return { taxAmount: 0, taxRate: 0 };
-  };
 
-  const calculateMetrics = (txs: Transaction[], costBasis: number) => {
-    let totalEthSent = 0;
-    let totalUsdValue = 0;
-    let totalTaxOwed = 0;
-
-    for (const tx of txs) {
-      const estimatedEthPrice = costBasis;
-
-      if (tx.type === "sell") {
-        totalEthSent -= tx.amount;
-        tx.value = tx.amount * estimatedEthPrice;
-        totalUsdValue += tx.value;
-        const { taxAmount, taxRate } = calculateTransactionTax(tx.type, tx.value, tx.amount * costBasis);
-        tx.taxAmount = taxAmount;
-        tx.taxRate = taxRate;
-        totalTaxOwed += taxAmount;
-      } else if (tx.type === "buy") {
-        totalEthSent += tx.amount;
-        tx.value = tx.amount * estimatedEthPrice;
-        totalUsdValue -= tx.value;
+    for (const tx of transactions) {
+      if (tx.type === 'BUY') {
+        // Add to inventory using FIFO queue
+        lots.push({
+          date: tx.date,
+          amount: tx.amount,
+          costBasis: tx.price
+        });
+      } else if (tx.type === 'SELL') {
+        let remainingSell = tx.amount;
+        
+        while (remainingSell.greaterThan(0) && lots.length > 0) {
+          const lot = lots[0];
+          const sellAmount = Decimal.min(remainingSell, lot.amount);
+          
+          // Calculate holding period (in days)
+          const holdingPeriodDays = Math.floor((tx.date.getTime() - lot.date.getTime()) / (1000 * 60 * 60 * 24));
+          const isLongTerm = holdingPeriodDays > 365;
+          
+          // Calculate P&L
+          const costBasisTotal = sellAmount.times(lot.costBasis);
+          const sellTotal = sellAmount.times(tx.price);
+          const pnl = sellTotal.minus(costBasisTotal);
+          
+          // Calculate tax
+          const taxRate = isLongTerm ? currentJurisdiction.longTermRate : currentJurisdiction.shortTermRate;
+          const taxAmount = pnl.greaterThan(0) ? pnl.times(taxRate).dividedBy(100) : new Decimal(0);
+          
+          taxEvents.push({
+            date: tx.date,
+            symbol: tx.symbol,
+            type: isLongTerm ? 'LONG_TERM' : 'SHORT_TERM',
+            sellAmount,
+            sellPrice: tx.price,
+            costBasis: lot.costBasis,
+            pnl,
+            taxAmount,
+            isTaxable: pnl.greaterThan(0)
+          });
+          
+          // Update lots
+          lot.amount = lot.amount.minus(sellAmount);
+          if (lot.amount.lessThanOrEqualTo(0)) {
+            lots.shift(); // Remove depleted lot
+          }
+          
+          remainingSell = remainingSell.minus(sellAmount);
+        }
       }
     }
-
-    const costBasisTotal = totalEthSent * costBasis;
-    const gainLossUsd = totalUsdValue + costBasisTotal;
-
-    setNetProfit(gainLossUsd);
-    setTotalBuys(0);
-    setTotalSells(totalUsdValue);
-    setTotalTax(totalTaxOwed);
+    
+    return taxEvents;
   };
 
-  const processFile = async (file: File) => {
-    const text = await file.text();
-    const lines = text.split('\n');
-    const headers = lines[0].split(',');
-    
-    const parsedTransactions: Transaction[] = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      
-      const values = lines[i].split(',');
-      const row: Record<string, string> = {};
-      headers.forEach((header, index) => {
-        row[header.trim()] = values[index]?.trim() || '';
-      });
-      
-      const amount = parseFloat(row['Amount']?.replace('ETH', '').trim() || '0');
-      const usdValue = parseFloat(row['Value (USD)']?.replace('$', '').trim() || '0');
-      const method = row['Method']?.toLowerCase() || '';
-      
-      let type = 'transfer';
-      if (method.includes('buy') || method.includes('deposit') || method.includes('receive')) {
-        type = 'buy';
-      } else if (method.includes('sell') || method.includes('withdraw') || method.includes('send')) {
-        type = 'sell';
+  const processFile = (file: File) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const transactions: ParsedTransaction[] = [];
+          
+          for (const row of results.data as any[]) {
+            // Parse amount (remove "ETH" suffix)
+            const amountStr = (row['Amount'] || '').toString().replace(/ETH/gi, '').trim();
+            const amount = new Decimal(amountStr || '0');
+            
+            // Parse USD value (remove "$" prefix)
+            const valueStr = (row['Value (USD)'] || '').toString().replace(/\$/g, '').trim();
+            const value = new Decimal(valueStr || '0');
+            
+            // Calculate price per unit
+            const price = amount.greaterThan(0) ? value.dividedBy(amount) : new Decimal(0);
+            
+            // Parse date
+            const dateStr = row['DateTime (UTC)'] || row['Date'] || '';
+            const date = dateStr ? new Date(dateStr) : new Date();
+            
+            // Determine transaction type
+            const method = (row['Method'] || '').toLowerCase();
+            let type: 'BUY' | 'SELL' = 'BUY';
+            
+            if (method.includes('sell') || method.includes('withdraw') || method.includes('send') || method.includes('swap out')) {
+              type = 'SELL';
+            } else if (method.includes('buy') || method.includes('deposit') || method.includes('receive') || method.includes('swap in')) {
+              type = 'BUY';
+            }
+            
+            if (amount.greaterThan(0)) {
+              transactions.push({
+                date,
+                type,
+                symbol: 'ETH',
+                amount,
+                price,
+                value
+              });
+            }
+          }
+          
+          // Sort by date (oldest first for FIFO)
+          transactions.sort((a, b) => a.date.getTime() - b.date.getTime());
+          
+          setParsedTransactions(transactions);
+          
+          // Calculate tax events
+          const events = calculateTaxWithFIFO(transactions);
+          setTaxableEvents(events);
+          
+          // Calculate totals
+          let shortTermTotal = new Decimal(0);
+          let longTermTotal = new Decimal(0);
+          let totalTaxAmount = new Decimal(0);
+          
+          for (const event of events) {
+            if (event.type === 'SHORT_TERM') {
+              shortTermTotal = shortTermTotal.plus(event.pnl);
+            } else {
+              longTermTotal = longTermTotal.plus(event.pnl);
+            }
+            totalTaxAmount = totalTaxAmount.plus(event.taxAmount);
+          }
+          
+          setTotalShortTermGains(shortTermTotal);
+          setTotalLongTermGains(longTermTotal);
+          setTotalTax(totalTaxAmount);
+          
+          toast({
+            title: "CSV Processed",
+            description: `Loaded ${transactions.length} transactions. Found ${events.length} taxable events.`,
+          });
+        } catch (error) {
+          console.error('Error processing CSV:', error);
+          toast({
+            title: "Processing Error",
+            description: "Failed to process CSV. Please check the format.",
+            variant: "destructive",
+          });
+        }
+      },
+      error: (error) => {
+        console.error('CSV parsing error:', error);
+        toast({
+          title: "Parse Error",
+          description: "Failed to parse CSV file.",
+          variant: "destructive",
+        });
       }
-      
-      const txDate = new Date(row['DateTime (UTC)'] || Date.now());
-      
-      parsedTransactions.push({
-        type,
-        amount,
-        value: usdValue,
-        date: txDate,
-        taxAmount: 0,
-        taxRate: 0
-      });
-    }
-    
-    setTransactions(parsedTransactions);
-    calculateMetrics(parsedTransactions, costBasisPerEth);
-    
-    toast({
-      title: "CSV Processed",
-      description: `Loaded ${parsedTransactions.length} transactions from CSV.`,
     });
   };
 
@@ -205,7 +284,7 @@ const Calculator = () => {
       return;
     }
     
-    await processFile(file);
+    processFile(file);
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -235,14 +314,14 @@ const Calculator = () => {
       return;
     }
     
-    await processFile(file);
+    processFile(file);
   };
 
   const generatePDF = () => {
-    if (transactions.length === 0) {
+    if (taxableEvents.length === 0) {
       toast({
         title: "No Data",
-        description: "No transactions to generate a report for.",
+        description: "No taxable events to generate a report for.",
         variant: "destructive",
       });
       return;
@@ -250,93 +329,36 @@ const Calculator = () => {
 
     const doc = new jsPDF();
     let yPos = 20;
-    const pageHeight = 280;
-    const margin = 20;
-    
-    const totalEthSent = transactions.reduce((sum, tx) => sum + tx.amount, 0);
-    const totalUsdValue = transactions.reduce((sum, tx) => sum + tx.value, 0);
-    const COST_BASIS_PER_ETH = costBasisPerEth;
     
     doc.setFontSize(20);
-    doc.text('KryptoGain Tax Report', margin, yPos);
+    doc.text('KryptoGain Tax Report', 20, yPos);
     yPos += 15;
     
     doc.setFontSize(11);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, yPos);
     yPos += 7;
-    doc.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
-    yPos += 7;
-    doc.text(`Total Transactions: ${transactions.length}`, margin, yPos);
+    doc.text(`Total Taxable Events: ${taxableEvents.length}`, 20, yPos);
     yPos += 15;
     
-    doc.setFontSize(16);
-    doc.text('Calculation Summary', margin, yPos);
+    doc.setFontSize(14);
+    doc.text('Tax Summary', 20, yPos);
     yPos += 10;
     
     doc.setFontSize(12);
-    doc.text(`Total ETH Sent: ${totalEthSent.toFixed(4)} ETH`, margin, yPos);
+    doc.text(`Short-Term Gains: $${totalShortTermGains.toFixed(2)}`, 20, yPos);
     yPos += 7;
-    doc.text(`Total USD Value: $${totalUsdValue.toFixed(2)}`, margin, yPos);
+    doc.text(`Long-Term Gains: $${totalLongTermGains.toFixed(2)}`, 20, yPos);
     yPos += 7;
-    doc.text(`Cost Basis per ETH: $${COST_BASIS_PER_ETH.toFixed(2)}`, margin, yPos);
+    doc.text(`Total Tax Owed: $${totalTax.toFixed(2)}`, 20, yPos);
     yPos += 7;
-    doc.text(`Total Cost Basis: $${totalBuys.toFixed(2)}`, margin, yPos);
-    yPos += 10;
-    
-    doc.setFontSize(14);
-    if (netProfit >= 0) {
-      doc.setTextColor(0, 128, 0);
-      doc.text(`Gain: $${netProfit.toFixed(2)}`, margin, yPos);
-    } else {
-      doc.setTextColor(255, 0, 0);
-      doc.text(`Loss: $${Math.abs(netProfit).toFixed(2)}`, margin, yPos);
-    }
-    doc.setTextColor(0, 0, 0);
-    yPos += 10;
-    
-    doc.setFontSize(12);
-    doc.text(`Tax Rate: ${taxJurisdictions[jurisdiction].shortTermRate}%`, margin, yPos);
-    yPos += 7;
-    doc.setTextColor(255, 69, 0);
-    doc.setFontSize(14);
-    doc.text(`Tax Owed: $${totalTax.toFixed(2)}`, margin, yPos);
-    doc.setTextColor(0, 0, 0);
-    yPos += 10;
-    
-    const netAfterTax = netProfit - totalTax;
-    doc.setTextColor(0, 100, 200);
-    doc.setFontSize(16);
-    doc.text(`Net After Tax: $${netAfterTax.toFixed(2)}`, margin, yPos);
-    doc.setTextColor(0, 0, 0);
-    yPos += 15;
-
-    if (yPos > pageHeight - 20) {
-      doc.addPage();
-      yPos = margin;
-    }
-    
-    doc.setFontSize(16);
-    doc.text('Transaction Details', margin, yPos);
-    yPos += 10;
-    
-    doc.setFontSize(9);
-    doc.text('Method | ETH Amount | USD Value | Date', margin, yPos);
-    yPos += 7;
-    
-    for (const tx of transactions) {
-      if (yPos > pageHeight - 10) {
-        doc.addPage();
-        yPos = margin;
-      }
-      const line = `${tx.type} | ${tx.amount.toFixed(4)} ETH | $${tx.value.toFixed(2)} | ${tx.date || 'N/A'}`;
-      doc.text(line, margin, yPos);
-      yPos += 5;
-    }
+    const netGains = totalShortTermGains.plus(totalLongTermGains);
+    doc.text(`Net After Tax: $${netGains.minus(totalTax).toFixed(2)}`, 20, yPos);
 
     doc.save(`kryptogain-tax-report-${Date.now()}.pdf`);
     
     toast({
       title: "PDF Generated!",
-      description: "Your comprehensive tax report has been downloaded.",
+      description: "Your tax report has been downloaded.",
     });
   };
 
@@ -364,14 +386,11 @@ const Calculator = () => {
     }
 
     setLoading(true);
-    setTransactions([]);
-    setNetProfit(0);
-    setTotalBuys(0);
-    setTotalSells(0);
-    setTotalTax(0);
+    setParsedTransactions([]);
+    setTaxableEvents([]);
 
     try {
-      const allTransactions: Transaction[] = [];
+      const allTransactions: ParsedTransaction[] = [];
       const start = new Date(dateRange.from);
       const end = new Date(dateRange.to);
       
@@ -384,24 +403,31 @@ const Calculator = () => {
         const data = await response.json();
         
         if (data.status === "1" && data.result.length > 0) {
-          const dayTransactions: Transaction[] = data.result.map((tx: any) => ({
-            type: tx.value === "0" ? "transfer" : (tx.to.toLowerCase() === effectiveAddress.toLowerCase() ? "buy" : "sell"),
-            amount: parseFloat((parseInt(tx.value) / 1e18).toFixed(6)),
-            value: 0,
-            date: new Date(parseInt(tx.timeStamp) * 1000),
-            taxAmount: 0,
-            taxRate: 0,
-          }));
-          allTransactions.push(...dayTransactions);
+          for (const tx of data.result) {
+            const amount = new Decimal(tx.value).dividedBy(1e18);
+            const isSell = tx.from.toLowerCase() === effectiveAddress.toLowerCase();
+            
+            allTransactions.push({
+              type: isSell ? 'SELL' : 'BUY',
+              amount,
+              price: new Decimal(2500), // Default price, should be fetched from price API
+              value: amount.times(2500),
+              date: new Date(parseInt(tx.timeStamp) * 1000),
+              symbol: 'ETH'
+            });
+          }
         }
       }
       
-      setTransactions(allTransactions);
-      calculateMetrics(allTransactions, costBasisPerEth);
+      allTransactions.sort((a, b) => a.date.getTime() - b.date.getTime());
+      setParsedTransactions(allTransactions);
+      
+      const events = calculateTaxWithFIFO(allTransactions);
+      setTaxableEvents(events);
       
       toast({
         title: "Transactions Fetched",
-        description: `Loaded ${allTransactions.length} transactions from Etherscan.`,
+        description: `Loaded ${allTransactions.length} transactions.`,
       });
     } catch (error) {
       console.error("Error fetching Etherscan transactions:", error);
@@ -415,15 +441,34 @@ const Calculator = () => {
     }
   };
 
+  // Recalculate when jurisdiction changes
   useEffect(() => {
-    if (transactions.length > 0) {
-      calculateMetrics(transactions, costBasisPerEth);
+    if (parsedTransactions.length > 0) {
+      const events = calculateTaxWithFIFO(parsedTransactions);
+      setTaxableEvents(events);
+      
+      let shortTermTotal = new Decimal(0);
+      let longTermTotal = new Decimal(0);
+      let totalTaxAmount = new Decimal(0);
+      
+      for (const event of events) {
+        if (event.type === 'SHORT_TERM') {
+          shortTermTotal = shortTermTotal.plus(event.pnl);
+        } else {
+          longTermTotal = longTermTotal.plus(event.pnl);
+        }
+        totalTaxAmount = totalTaxAmount.plus(event.taxAmount);
+      }
+      
+      setTotalShortTermGains(shortTermTotal);
+      setTotalLongTermGains(longTermTotal);
+      setTotalTax(totalTaxAmount);
     }
-  }, [costBasisPerEth, jurisdiction]);
+  }, [jurisdiction, parsedTransactions]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 px-4 sm:px-6 md:px-8 py-8 sm:py-12 md:py-16">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8 sm:mb-12">
           <Button
             variant="ghost"
@@ -443,20 +488,59 @@ const Calculator = () => {
 
         <Card className="p-6 sm:p-8 mb-8 backdrop-blur-sm bg-card/95 shadow-xl border-primary/10">
           <h2 className="font-serif text-fluid-2xl font-semibold mb-6 text-foreground">
-            Generate your Crypto Tax Report
+            Crypto Tax Calculator
           </h2>
 
           <Tabs value={inputMethod} onValueChange={(v) => setInputMethod(v as 'wallet' | 'csv')} className="mb-6">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="wallet" className="gap-2">
-                <Wallet className="h-4 w-4" />
-                Wallet Connection
-              </TabsTrigger>
               <TabsTrigger value="csv" className="gap-2">
                 <FileText className="h-4 w-4" />
                 CSV Upload
               </TabsTrigger>
+              <TabsTrigger value="wallet" className="gap-2">
+                <Wallet className="h-4 w-4" />
+                Wallet Connection
+              </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="csv" className="space-y-6 mt-6">
+              <div
+                className={cn(
+                  "relative rounded-lg border-2 border-dashed transition-all duration-200 cursor-pointer",
+                  dragActive 
+                    ? "border-primary bg-primary/10 scale-[1.02]" 
+                    : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
+                )}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById('csv-upload')?.click()}
+              >
+                <input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <div className="p-12 text-center">
+                  <Upload className={cn(
+                    "h-12 w-12 mx-auto mb-4 transition-colors",
+                    dragActive ? "text-primary" : "text-muted-foreground"
+                  )} />
+                  <h3 className="font-semibold mb-2">
+                    {dragActive ? "Drop your CSV file here" : "Upload CSV File"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Drag and drop or click to browse
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Expected columns: Date, Method, Amount, Value (USD)
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
 
             <TabsContent value="wallet" className="space-y-6 mt-6">
               {!isConnected ? (
@@ -511,9 +595,6 @@ const Calculator = () => {
                   placeholder={address || "0xAbc123..."}
                   className="font-mono"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Enter manually or use connected wallet address
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -530,7 +611,7 @@ const Calculator = () => {
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {dateRange.from && dateRange.to
                         ? `${format(dateRange.from, "PPP")} - ${format(dateRange.to, "PPP")}`
-                        : <span className="font-normal">Pick a date range</span>}
+                        : <span>Pick a date range</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -552,64 +633,9 @@ const Calculator = () => {
                 {loading ? "Fetching..." : "Fetch Transactions"}
               </Button>
             </TabsContent>
-
-            <TabsContent value="csv" className="space-y-6 mt-6">
-              <div
-                className={cn(
-                  "relative rounded-lg border-2 border-dashed transition-all duration-200 cursor-pointer",
-                  dragActive 
-                    ? "border-primary bg-primary/10 scale-[1.02]" 
-                    : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
-                )}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('csv-upload')?.click()}
-              >
-                <input
-                  id="csv-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <div className="p-12 text-center">
-                  <Upload className={cn(
-                    "h-12 w-12 mx-auto mb-4 transition-colors",
-                    dragActive ? "text-primary" : "text-muted-foreground"
-                  )} />
-                  <h3 className="font-semibold mb-2">
-                    {dragActive ? "Drop your CSV file here" : "Upload CSV File"}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Drag and drop or click to browse
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Supported format: CSV with transaction data
-                  </p>
-                </div>
-              </div>
-            </TabsContent>
           </Tabs>
 
           <div className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="cost-basis">Average Buy Price per ETH (USD)</Label>
-              <Input
-                id="cost-basis"
-                type="number"
-                value={costBasisInput}
-                onChange={(e) => handleCostBasisChange(e.target.value)}
-                placeholder="2500"
-                min="0"
-                step="0.01"
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter your average purchase price per ETH in USD
-              </p>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="jurisdiction">Tax Jurisdiction</Label>
               <Select value={jurisdiction} onValueChange={setJurisdiction}>
@@ -619,7 +645,7 @@ const Calculator = () => {
                 <SelectContent>
                   {Object.entries(taxJurisdictions).map(([key, value]) => (
                     <SelectItem key={key} value={key}>
-                      {value.name} ({value.shortTermRate}%)
+                      {value.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -629,36 +655,114 @@ const Calculator = () => {
               </p>
             </div>
 
-            {transactions.length > 0 && (
-              <div className="rounded-lg border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 p-6 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h3 className="font-semibold text-lg flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
-                  Tax Preview
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center py-2 border-b border-primary/10">
-                    <span className="text-muted-foreground">Net Profit/Loss:</span>
-                    <span className={cn(
-                      "font-semibold text-lg",
-                      netProfit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                    )}>
-                      ${netProfit.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-primary/10">
-                    <span className="text-muted-foreground">Total Tax Owed:</span>
-                    <span className="text-orange-600 dark:text-orange-400 font-semibold text-lg">
-                      ${totalTax.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center pt-3">
-                    <span className="font-semibold text-base">Net After Tax:</span>
-                    <span className="font-bold text-xl text-primary">
-                      ${(netProfit - totalTax).toFixed(2)}
-                    </span>
+            {taxableEvents.length > 0 && (
+              <>
+                <div className="rounded-lg border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 p-6 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <h3 className="font-semibold text-lg flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+                    Tax Summary
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between items-center py-2 border-b border-primary/10">
+                      <span className="text-muted-foreground">Short-Term Gains:</span>
+                      <span className={cn(
+                        "font-semibold",
+                        totalShortTermGains.greaterThanOrEqualTo(0) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                      )}>
+                        ${totalShortTermGains.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-primary/10">
+                      <span className="text-muted-foreground">Long-Term Gains:</span>
+                      <span className={cn(
+                        "font-semibold",
+                        totalLongTermGains.greaterThanOrEqualTo(0) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                      )}>
+                        ${totalLongTermGains.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-primary/10">
+                      <span className="text-muted-foreground">Total Tax Owed:</span>
+                      <span className="text-orange-600 dark:text-orange-400 font-semibold text-lg">
+                        ${totalTax.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-3">
+                      <span className="font-semibold text-base">Net After Tax:</span>
+                      <span className="font-bold text-xl text-primary">
+                        ${totalShortTermGains.plus(totalLongTermGains).minus(totalTax).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Asset</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">Cost Basis</TableHead>
+                          <TableHead className="text-right">Sell Price</TableHead>
+                          <TableHead className="text-right">P&L</TableHead>
+                          <TableHead className="text-right">Tax</TableHead>
+                          <TableHead className="text-center">Taxable</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {taxableEvents.map((event, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-mono text-xs">
+                              {format(event.date, "yyyy-MM-dd")}
+                            </TableCell>
+                            <TableCell className="font-semibold">{event.symbol}</TableCell>
+                            <TableCell>
+                              <span className={cn(
+                                "text-xs px-2 py-1 rounded-full",
+                                event.type === 'SHORT_TERM' 
+                                  ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300"
+                                  : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                              )}>
+                                {event.type === 'SHORT_TERM' ? 'Short-Term' : 'Long-Term'}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              {event.sellAmount.toFixed(4)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              ${event.costBasis.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              ${event.sellPrice.toFixed(2)}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-right font-mono text-sm font-semibold",
+                              event.pnl.greaterThanOrEqualTo(0) 
+                                ? "text-green-600 dark:text-green-400" 
+                                : "text-red-600 dark:text-red-400"
+                            )}>
+                              ${event.pnl.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm text-orange-600 dark:text-orange-400">
+                              ${event.taxAmount.toFixed(2)}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {event.isTaxable ? (
+                                <span className="text-green-600 dark:text-green-400">✓</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="border-t border-border pt-6 space-y-4">
@@ -694,7 +798,7 @@ const Calculator = () => {
               <Button
                 size="lg"
                 className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg"
-                disabled={transactions.length === 0}
+                disabled={taxableEvents.length === 0}
                 onClick={generatePDF}
               >
                 Generate PDF Report
