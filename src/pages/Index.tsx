@@ -21,10 +21,10 @@ const Index = () => {
           {/* Tagline with stagger animation */}
           <div className="space-y-3 sm:space-y-4 max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
             <h2 className="font-serif text-fluid-3xl sm:text-fluid-4xl md:text-fluid-5xl font-normal leading-tight text-foreground">
-              Track. Calculate. Comply.
+              Track. Analyze. Stay Informed.
             </h2>
             <p className="font-serif text-fluid-2xl sm:text-fluid-3xl md:text-fluid-4xl font-normal leading-tight text-muted-foreground">
-              Crypto Taxes Made Easy.
+              Crypto Insights Made Simple.
             </p>
           </div>
 
@@ -34,24 +34,24 @@ const Index = () => {
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Calculator className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="font-semibold text-lg mb-2">FIFO Calculation</h3>
-              <p className="text-sm text-muted-foreground">Accurate tax calculations using First-In-First-Out method</p>
+              <h3 className="font-semibold text-lg mb-2">FIFO-Based Analysis</h3>
+              <p className="text-sm text-muted-foreground">Accurate tax analyses using First-In-First-Out method</p>
             </div>
 
             <div className="flex flex-col items-center p-6 rounded-lg bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300 hover:scale-105">
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Shield className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="font-semibold text-lg mb-2">Multiple Jurisdictions</h3>
-              <p className="text-sm text-muted-foreground">Support for US and international tax regulations</p>
+              <h3 className="font-semibold text-lg mb-2">Flexible Region Settings</h3>
+              <p className="text-sm text-muted-foreground">Generalized tax rule interpretations</p>
             </div>
 
             <div className="flex flex-col items-center p-6 rounded-lg bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300 hover:scale-105">
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <FileText className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="font-semibold text-lg mb-2">PDF Reports</h3>
-              <p className="text-sm text-muted-foreground">Professional tax reports ready for filing</p>
+              <h3 className="font-semibold text-lg mb-2">PDF Summaries</h3>
+              <p className="text-sm text-muted-foreground">Auto-generated breakdowns for personal reference</p>
             </div>
           </div>
 
@@ -81,9 +81,9 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">2</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Auto-Calculate</h4>
+                <h4 className="font-semibold text-lg mb-2">Auto-Process</h4>
                 <p className="text-sm text-muted-foreground">
-                  Our FIFO algorithm calculates your gains and losses automatically
+                  Our FIFO-based processor gives you an estimated view of gains/losses.
                 </p>
               </div>
 
@@ -92,9 +92,9 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">3</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Review Results</h4>
+                <h4 className="font-semibold text-lg mb-2">Review Summary</h4>
                 <p className="text-sm text-muted-foreground">
-                  See your tax summary with short-term and long-term gains
+                  View an auto-generated breakdown for review.
                 </p>
               </div>
 
@@ -103,9 +103,9 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">4</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Download Report</h4>
+                <h4 className="font-semibold text-lg mb-2">Download Summary</h4>
                 <p className="text-sm text-muted-foreground">
-                  Pay $15 and get your professional PDF tax report instantly
+                  Pay $15 to download an auto-generated PDF summary.
                 </p>
               </div>
             </div>
@@ -123,7 +123,7 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-              <span>Real-time Calculations</span>
+              <span>Real-time Processing</span>
             </div>
           </div>
 
@@ -133,13 +133,18 @@ const Index = () => {
             onClick={() => navigate('/calculator')}
             className="mt-8 sm:mt-12 md:mt-16 px-8 sm:px-10 md:px-12 py-6 sm:py-7 md:py-8 text-fluid-base sm:text-fluid-lg md:text-fluid-xl font-semibold rounded-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-800 group"
           >
-            Generate my Tax Report
+            Generate Summary
             <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
           </Button>
 
           {/* Pricing note */}
           <p className="text-sm text-muted-foreground animate-in fade-in duration-700 delay-1000">
             Only <span className="font-semibold text-foreground">$15</span> for a complete tax report
+          </p>
+
+          {/* Disclaimer */}
+          <p className="text-xs text-muted-foreground text-center mt-8 px-4 max-w-2xl">
+            All outputs are automated estimates for personal use and do not constitute tax, legal, or financial advice. Users are responsible for verifying all results.
           </p>
         </div>
       </div>
