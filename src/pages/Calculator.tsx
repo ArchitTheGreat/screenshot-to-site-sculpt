@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, CalendarIcon, Wallet, Upload, FileText } from 'lucide-react';
+import { ArrowLeft, ExternalLink, CalendarIcon, Upload, FileText } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 import { Calendar } from '@/components/ui/calendar';
@@ -92,11 +91,7 @@ const taxJurisdictions: Record<string, TaxJurisdiction> = {
 
 const Calculator = () => {
   const navigate = useNavigate();
-  const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
   
-  const [walletAddress, setWalletAddress] = useState<string>('');
   const [hasPaid, setHasPaid] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
   const [taxableEvents, setTaxableEvents] = useState<TaxableEvent[]>([]);
@@ -107,13 +102,7 @@ const Calculator = () => {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
   const [dragActive, setDragActive] = useState(false);
-  const [inputMethod, setInputMethod] = useState<'wallet' | 'csv'>('csv');
-
-  useEffect(() => {
-    if (isConnected && address) {
-      setWalletAddress(address);
-    }
-  }, [isConnected, address]);
+  const [inputMethod, setInputMethod] = useState<'wallet' | 'csv'>('csv'); // inputMethod is now effectively always 'csv'
 
   // FIFO matching algorithm - memoized with useCallback
   const calculateTaxWithFIFO = useCallback((transactions: ParsedTransaction[]): TaxableEvent[] => {
@@ -441,156 +430,6 @@ const Calculator = () => {
     });
   };
 
-  const ETHERSCAN_API_KEY = import.meta.env.VITE_ETHERSCAN_API_KEY;
-
-  // Fetch historical ETH price from CoinGecko
-  const fetchHistoricalPrice = async (timestamp: number): Promise<Decimal> => {
-    try {
-      const date = new Date(timestamp * 1000);
-      const dateStr = `${date.getDate().toString().padStart(2, '0')}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getFullYear()}`;
-      
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/coins/ethereum/history?date=${dateStr}`
-      );
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch price');
-      }
-      
-      const data = await response.json();
-      return new Decimal(data.market_data?.current_price?.usd || 2000);
-    } catch (error) {
-      console.warn('Could not fetch historical price, using fallback');
-      return new Decimal(2000); // Fallback price
-    }
-  };
-
-  const fetchEtherscanTransactions = async () => {
-    const effectiveAddress = walletAddress || address;
-    
-    if (!effectiveAddress) {
-      toast({
-        title: "Missing Wallet Address",
-        description: "Please connect wallet or enter an address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!dateRange?.from || !dateRange?.to) {
-      toast({
-        title: "Missing Date Range",
-        description: "Please select a date range.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!ETHERSCAN_API_KEY) {
-      toast({
-        title: "Missing API Key",
-        description: "Etherscan API key not configured. Please add VITE_ETHERSCAN_API_KEY to your .env file.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
-    setParsedTransactions([]);
-    setTaxableEvents([]);
-    setTotalShortTermGains(new Decimal(0));
-    setTotalLongTermGains(new Decimal(0));
-    setTotalTax(new Decimal(0));
-
-    try {
-      const startTimestamp = Math.floor(dateRange.from.getTime() / 1000);
-      const endTimestamp = Math.floor(dateRange.to.getTime() / 1000);
-      
-      // Fetch all transactions in one call (Etherscan handles date filtering)
-      const apiUrl = `https://api.etherscan.io/api?module=account&action=txlist&address=${effectiveAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${ETHERSCAN_API_KEY}`;
-      
-      const response = await fetch(apiUrl);
-      const data = await response.json();
-      
-      if (data.status !== "1") {
-        throw new Error(data.message || 'Failed to fetch transactions');
-      }
-
-      const allTransactions: ParsedTransaction[] = [];
-      const priceCache: Record<string, Decimal> = {};
-      
-      // Filter transactions by date range and process
-      const filteredTxs = data.result.filter((tx: any) => {
-        const txTimestamp = parseInt(tx.timeStamp);
-        return txTimestamp >= startTimestamp && txTimestamp <= endTimestamp;
-      });
-
-      toast({
-        title: "Fetching Prices",
-        description: `Processing ${filteredTxs.length} transactions...`,
-      });
-
-      for (const tx of filteredTxs) {
-        const amount = new Decimal(tx.value).dividedBy(1e18);
-        
-        if (amount.lessThanOrEqualTo(0)) continue; // Skip zero-value transactions
-        
-        const isSell = tx.from.toLowerCase() === effectiveAddress.toLowerCase();
-        const timestamp = parseInt(tx.timeStamp);
-        const dateKey = new Date(timestamp * 1000).toDateString();
-        
-        // Cache prices by date to reduce API calls
-        if (!priceCache[dateKey]) {
-          priceCache[dateKey] = await fetchHistoricalPrice(timestamp);
-          // Rate limit CoinGecko API
-          await new Promise(resolve => setTimeout(resolve, 250));
-        }
-        
-        const price = priceCache[dateKey];
-        
-        allTransactions.push({
-          type: isSell ? 'SELL' : 'BUY',
-          amount,
-          price,
-          value: amount.times(price),
-          date: new Date(timestamp * 1000),
-          symbol: 'ETH'
-        });
-      }
-      
-      if (allTransactions.length === 0) {
-        toast({
-          title: "No Transactions Found",
-          description: "No transactions found for this address in the selected date range.",
-          variant: "destructive",
-        });
-        setLoading(false);
-        return;
-      }
-
-      allTransactions.sort((a, b) => a.date.getTime() - b.date.getTime());
-      setParsedTransactions(allTransactions);
-      
-      const events = calculateTaxWithFIFO(allTransactions);
-      setTaxableEvents(events);
-      calculateTotals(events);
-      
-      toast({
-        title: "Transactions Fetched",
-        description: `Loaded ${allTransactions.length} transactions. Found ${events.length} taxable events.`,
-      });
-    } catch (error) {
-      console.error("Error fetching Etherscan transactions:", error);
-      toast({
-        title: "Error",
-        description: `Failed to fetch transactions: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Recalculate when jurisdiction changes
   useEffect(() => {
     if (parsedTransactions.length > 0) {
@@ -625,15 +464,11 @@ const Calculator = () => {
             Crypto Tax Calculator
           </h2>
 
-          <Tabs value={inputMethod} onValueChange={(v) => setInputMethod(v as 'wallet' | 'csv')} className="mb-6">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs value={inputMethod} className="mb-6"> {/* Removed onValueChange */}
+            <TabsList className="grid w-full grid-cols-1"> {/* Changed to 1 column */}
               <TabsTrigger value="csv" className="gap-2">
                 <FileText className="h-4 w-4" />
                 CSV Upload
-              </TabsTrigger>
-              <TabsTrigger value="wallet" className="gap-2">
-                <Wallet className="h-4 w-4" />
-                Wallet Connection
               </TabsTrigger>
             </TabsList>
 
@@ -676,98 +511,7 @@ const Calculator = () => {
               </div>
             </TabsContent>
 
-            <TabsContent value="wallet" className="space-y-6 mt-6">
-              {!isConnected ? (
-                <div className="space-y-4">
-                  <div className="rounded-lg border-2 border-dashed border-primary/20 bg-primary/5 p-6 text-center">
-                    <Wallet className="h-12 w-12 mx-auto mb-4 text-primary" />
-                    <h3 className="font-semibold mb-2">Connect Your Wallet</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Connect your wallet to automatically fetch transactions
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      {connectors.map((connector) => (
-                        <Button
-                          key={connector.id}
-                          onClick={() => connect({ connector })}
-                          variant="outline"
-                          className="w-full"
-                        >
-                          Connect {connector.name}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="text-center text-sm text-muted-foreground">
-                    <span>Or enter wallet address manually</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-primary/5 p-4 border border-primary/20">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Connected Wallet</p>
-                        <p className="font-mono text-sm font-semibold">{address}</p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => disconnect()}>
-                        Disconnect
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="wallet-address">Ethereum Wallet Address</Label>
-                <Input
-                  id="wallet-address"
-                  type="text"
-                  value={walletAddress}
-                  onChange={(e) => setWalletAddress(e.target.value)}
-                  placeholder={address || "0xAbc123..."}
-                  className="font-mono"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="date-range-selector">Select Date Range</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !dateRange?.from && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRange?.from && dateRange?.to
-                        ? `${format(dateRange.from, "PPP")} - ${format(dateRange.to, "PPP")}`
-                        : <span>Pick a date range</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="range"
-                      selected={dateRange}
-                      onSelect={setDateRange}
-                      numberOfMonths={2}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <Button
-                onClick={fetchEtherscanTransactions}
-                disabled={loading}
-                className="w-full"
-              >
-                {loading ? "Fetching..." : "Fetch Transactions"}
-              </Button>
-            </TabsContent>
+            {/* Wallet connection tab content removed */}
           </Tabs>
 
           <div className="space-y-6">

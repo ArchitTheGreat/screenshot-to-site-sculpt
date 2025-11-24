@@ -12,7 +12,7 @@ const Index = () => {
           
           {/* Logo with gradient */}
           <div className="relative animate-in fade-in slide-in-from-top-4 duration-700">
-            <h1 className="font-serif text-fluid-6xl sm:text-[clamp(4rem,3rem+8vw,7rem)] font-bold tracking-tight bg-gradient-to-r from-primary via-primary to-primary/60 bg-clip-text text-transparent">
+            <h1 className="font-serif text-fluid-6xl sm:text-[clamp(4rem,3rem+8vw,7rem)] font-bold tracking-tight text-primary">
               KryptoGain
             </h1>
             <div className="absolute -bottom-2 sm:-bottom-3 left-0 right-0 h-1 sm:h-1.5 bg-gradient-to-r from-transparent via-primary to-transparent"></div>
