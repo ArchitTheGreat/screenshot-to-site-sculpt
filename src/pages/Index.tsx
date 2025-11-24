@@ -130,7 +130,7 @@ const Index = () => {
           {/* CTA Button with enhanced design */}
           <Button 
             size="lg"
-            onClick={() => navigate('/terms.tsx')}
+            onClick={() => navigate('/terms')}
             className="mt-8 sm:mt-12 md:mt-16 px-8 sm:px-10 md:px-12 py-6 sm:py-7 md:py-8 text-fluid-base sm:text-fluid-lg md:text-fluid-xl font-semibold rounded-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-800 group"
           >
             Generate Summary

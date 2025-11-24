@@ -171,9 +171,16 @@ const TermsOfService = () => {
             </section>
 
             <div className="border-t border-border pt-6 mt-8">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground mb-6">
                 By using KryptoGain, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
               </p>
+              <Button
+                size="lg"
+                onClick={() => navigate('/calculator')}
+                className="w-full sm:w-auto px-8 py-6 text-lg font-semibold rounded-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105"
+              >
+                I Accept - Proceed to Calculator
+              </Button>
             </div>
           </div>
         </div>
