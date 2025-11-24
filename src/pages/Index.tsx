@@ -35,7 +35,7 @@ const Index = () => {
                 <Calculator className="h-6 w-6 text-primary" />
               </div>
               <h3 className="font-semibold text-lg mb-2">FIFO-Based Analysis</h3>
-              <p className="text-sm text-muted-foreground">Accurate tax analyses using First-In-First-Out method</p>
+              <p className="text-sm text-muted-foreground">Aproximate tax analyses using First-In-First-Out method</p>
             </div>
 
             <div className="flex flex-col items-center p-6 rounded-lg bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300 hover:scale-105">
@@ -70,9 +70,9 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">1</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Upload or Connect</h4>
+                <h4 className="font-semibold text-lg mb-2">Upload Transactions</h4>
                 <p className="text-sm text-muted-foreground">
-                  Upload your transaction CSV or connect your crypto wallet
+                  Upload your transaction CSV for processing
                 </p>
               </div>
 
@@ -119,7 +119,7 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-              <span>Wallet Integration</span>
+              <span>Exchange CSV Support</span>
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
@@ -130,7 +130,7 @@ const Index = () => {
           {/* CTA Button with enhanced design */}
           <Button 
             size="lg"
-            onClick={() => navigate('/calculator')}
+            onClick={() => navigate('/terms.tsx')}
             className="mt-8 sm:mt-12 md:mt-16 px-8 sm:px-10 md:px-12 py-6 sm:py-7 md:py-8 text-fluid-base sm:text-fluid-lg md:text-fluid-xl font-semibold rounded-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-800 group"
           >
             Generate Summary
@@ -139,7 +139,7 @@ const Index = () => {
 
           {/* Pricing note */}
           <p className="text-sm text-muted-foreground animate-in fade-in duration-700 delay-1000">
-            Only <span className="font-semibold text-foreground">$15</span> for a complete tax report
+            Only <span className="font-semibold text-foreground">$15</span> for an auto-generated PDF summary
           </p>
 
           {/* Disclaimer */}
