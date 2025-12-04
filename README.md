@@ -1,73 +1,73 @@
-# Welcome to your Lovable project
+# KryptoGain - Crypto Tax Calculator
 
-## Project info
+[![Vite](https://img.shields.io/badge/Vite-7.1.12-brightgreen)](https://vitejs.dev/)
+[![React](https://img.shields.io/badge/React-18.3.1-blue)](https://react.dev/)
 
-**URL**: https://lovable.dev/projects/ec474fb0-3637-4883-9bbe-c2d6856a6cab
+**KryptoGain** helps you calculate estimated crypto taxes using FIFO method from your exchange CSV exports. Get instant summaries and professional PDF reports.
 
-## How can I edit this code?
+## ✨ Key Features
 
-There are several ways of editing your application.
+- ✅ **Multi-Exchange Support**: Coinbase, Binance, Kraken, Crypto.com, Gemini + generic CSVs
+- ✅ **FIFO Tax Lots**: Automatic First-In-First-Out matching with short/long-term gains
+- ✅ **Multiple Tax Regions**: US rates (37%/20%), flat 20-30% options
+- ✅ **Real-Time Results**: Upload → Process → Review gains/losses instantly
+- ✅ **PDF Reports**: Downloadable summaries ($15 one-time fee)
+- ✅ **Mobile-Friendly**: Works on any device
 
-**Use Lovable**
+## 📱 How to Use
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/ec474fb0-3637-4883-9bbe-c2d6856a6cab) and start prompting.
+1. **Visit the App**: Open [kryptogain.app](https://kryptogain.app) (or deployed URL)
+2. **Upload CSV**: Drag & drop your exchange transaction export
+3. **Select Region**: Choose your tax jurisdiction
+4. **Review Summary**: See detailed table of gains, taxes owed
+5. **Pay $15**: Unlock PDF via secure payment
+6. **Download Report**: Professional PDF for your records
 
-Changes made via Lovable will be committed automatically to this repo.
+**Demo**: [Live Preview](https://lovable.dev/projects/ec474fb0-3637-4883-9bbe-c2d6856a6cab)
 
-**Use your preferred IDE**
+## 📊 Supported Exchanges
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+| Exchange     | Requirements                  |
+|--------------|-------------------------------|
+| **Coinbase** | Account → Reports → CSV       |
+| **Binance**  | Wallet → Export → CSV         |
+| **Kraken**   | History → CSV Download        |
+| **Crypto.com**| Export → Transaction History  |
+| **Gemini**   | Reports → Trade History CSV   |
+| **Generic**  | Any CSV with Date/Type/Amount |
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## 🌍 Tax Jurisdictions
 
-Follow these steps:
+| Setting      | Short-Term | Long-Term | Best For                  |
+|--------------|------------|-----------|---------------------------|
+| **US Mixed** | 37%        | 20%       | US Capital Gains          |
+| **US Short** | 37%        | 37%       | Short-term trades only    |
+| **US Long**  | 20%        | 20%       | Long-term holdings        |
+| **Flat 30%** | 30%        | 30%       | High-tax regions          |
+| **Flat 20%** | 20%        | 20%       | Low-tax regions           |
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## 💰 Pricing
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+- **Free**: Unlimited CSV processing & summaries
+- **$15**: One-time PDF report download (per calculation)
 
-# Step 3: Install the necessary dependencies.
-npm i
+## 📈 Version History
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+Current: **v1.0.0** (2025-12-02)
 
-**Edit a file directly in GitHub**
+**New in v1.0.0**:
+- Multi-exchange CSV parsing
+- FIFO tax calculations
+- PDF generation
+- Responsive UI
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+See full [CHANGELOG.md](CHANGELOG.md) for details.
 
-**Use GitHub Codespaces**
+## ⚠️ Important Disclaimer
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+> **Not Tax Advice**: KryptoGain provides *estimates only* for personal use. Always consult a qualified tax professional. We are not liable for any tax filings or decisions based on these calculations.
 
-## What technologies are used for this project?
+---
 
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/ec474fb0-3637-4883-9bbe-c2d6856a6cab) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+**Live App**: [kryptogain.app](https://kryptogain.app)  
+**Support**: hello@kryptogain.app
