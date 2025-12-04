@@ -35,7 +35,7 @@ const Index = () => {
                 <Calculator className="h-6 w-6 text-primary" />
               </div>
               <h3 className="font-semibold text-lg mb-2">FIFO-Based Analysis</h3>
-              <p className="text-sm text-muted-foreground">Aproximate tax analyses using First-In-First-Out method</p>
+              <p className="text-sm text-muted-foreground">Approximate tax analyses using First-In-First-Out method</p>
             </div>
 
             <div className="flex flex-col items-center p-6 rounded-lg bg-card/50 border border-border/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300 hover:scale-105">
@@ -57,7 +57,7 @@ const Index = () => {
 
           {/* How it works - Steps */}
           <div className="w-full max-w-5xl mt-12 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-500">
-            <h3 className="font-serif text-fluid-2xl sm:text-fluid-3xl font-semibold mb-8 sm:mb-12 text-foreground">
+            <h3 className="font-serif text-fluid-2xl sm:text-fluid-3xl font-bold mb-8 sm:mb-12 text-primary">
               How It Works
             </h3>
             
@@ -70,8 +70,8 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">1</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Upload Transactions</h4>
-                <p className="text-sm text-muted-foreground">
+                <h4 className="font-semibold text-lg mb-2 text-foreground">Upload Transactions</h4>
+                <p className="text-sm text-foreground/70">
                   Upload your transaction CSV for processing
                 </p>
               </div>
@@ -81,8 +81,8 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">2</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Auto-Process</h4>
-                <p className="text-sm text-muted-foreground">
+                <h4 className="font-semibold text-lg mb-2 text-foreground">Auto-Process</h4>
+                <p className="text-sm text-foreground/70">
                   Our FIFO-based processor gives you an estimated view of gains/losses.
                 </p>
               </div>
@@ -92,8 +92,8 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">3</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Review Summary</h4>
-                <p className="text-sm text-muted-foreground">
+                <h4 className="font-semibold text-lg mb-2 text-foreground">Review Summary</h4>
+                <p className="text-sm text-foreground/70">
                   View an auto-generated breakdown for review.
                 </p>
               </div>
@@ -103,8 +103,8 @@ const Index = () => {
                 <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300 z-10 relative">
                   <span className="text-2xl sm:text-3xl font-bold text-primary-foreground">4</span>
                 </div>
-                <h4 className="font-semibold text-lg mb-2">Download Summary</h4>
-                <p className="text-sm text-muted-foreground">
+                <h4 className="font-semibold text-lg mb-2 text-foreground">Download Summary</h4>
+                <p className="text-sm text-foreground/70">
                   Pay $15 to download an auto-generated PDF summary.
                 </p>
               </div>
@@ -146,6 +146,21 @@ const Index = () => {
           <p className="text-xs text-muted-foreground text-center mt-8 px-4 max-w-2xl">
             All outputs are automated estimates for personal use and do not constitute tax, legal, or financial advice. Users are responsible for verifying all results.
           </p>
+
+          {/* Footer */}
+          <footer className="w-full mt-16 pt-8 border-t border-border/50">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-muted-foreground">
+              <span>© {new Date().getFullYear()} KryptoGain</span>
+              <span className="hidden sm:inline">•</span>
+              <button onClick={() => navigate('/terms')} className="hover:text-primary transition-colors">
+                Terms of Service
+              </button>
+              <span className="hidden sm:inline">•</span>
+              <button onClick={() => navigate('/docs')} className="hover:text-primary transition-colors">
+                Documentation
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     </main>
