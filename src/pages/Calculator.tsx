@@ -888,10 +888,8 @@ const Calculator = () => {
                   <p className="text-sm text-muted-foreground mb-2">
                     We support CSV exports from Coinbase, Binance, Kraken, Crypto.com, and Gemini.
                   </p>
-                  <Button variant="link" className="p-0 h-auto font-normal text-primary" asChild>
-                    <a href="/docs">
-                      View format documentation and examples
-                    </a>
+                  <Button variant="link" className="p-0 h-auto font-normal text-primary" onClick={() => navigate('/docs')}>
+                    View format documentation and examples
                   </Button>
                 </div>
               </div>
