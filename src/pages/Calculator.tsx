@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, CalendarIcon, Upload, FileText, Info } from 'lucide-react'; // Added Info icon
+import { ArrowLeft, ExternalLink, CalendarIcon, Upload, FileText, Info, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 import { Calendar } from '@/components/ui/calendar';
@@ -274,19 +274,20 @@ const parseBinance = (row: Record<string, any>): ParsedTransaction | null => {
   }
 };
 
-// Kraken parser
+// Kraken parser - handles ledger exports with trades
 const parseKraken = (row: Record<string, any>): ParsedTransaction | null => {
   try {
-    // Extract date
-    const dateStr = row['time'] || row['Time'] || '';
+    // Extract date - Kraken uses various date formats
+    const dateStr = row['time'] || row['Time'] || row['txtime'] || '';
     if (!dateStr) return null;
     
     let date: Date;
-    // Kraken time is in Unix timestamp format (seconds)
-    const timestamp = parseInt(dateStr);
+    // Try parsing as Unix timestamp first
+    const timestamp = parseFloat(dateStr);
     if (!isNaN(timestamp) && timestamp > 1000000000) {
-      date = new Date(timestamp * 1000); // Convert to milliseconds
+      date = new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000);
     } else {
+      // Try ISO format
       date = new Date(dateStr);
     }
     
@@ -294,39 +295,78 @@ const parseKraken = (row: Record<string, any>): ParsedTransaction | null => {
     
     // Extract transaction type
     const typeStr = (row['type'] || row['Type'] || '').toLowerCase();
-    if (typeStr !== 'trade') return null; // Only process trades for now
-    
-    // Extract asset
-    const asset = (row['asset'] || row['Asset'] || '').toUpperCase();
     
     // Kraken uses codes like XETH for ETH, ZUSD for USD
     const normalizeAsset = (code: string): string => {
+      if (!code) return '';
+      code = code.toUpperCase();
       if (code.startsWith('X') && code.length > 3) return code.substring(1);
       if (code.startsWith('Z') && code.length > 3) return code.substring(1);
+      if (code === 'XXBT' || code === 'XBT') return 'BTC';
       return code;
     };
     
+    // Extract asset
+    const asset = row['asset'] || row['Asset'] || '';
     const symbol = normalizeAsset(asset);
     
-    // Skip USD rows (we'll handle pairing in a more complex implementation)
-    if (symbol === 'USD') return null;
+    // Skip USD/fiat rows
+    if (['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'].includes(symbol)) return null;
     
     // Extract amount
     const amountStr = row['amount'] || row['Amount'] || '0';
     let amount = new Decimal(amountStr || '0');
     if (amount.isNaN()) return null;
     
-    // Kraken shows negative amounts for sells
-    const isSell = amount.isNegative();
-    if (isSell) {
-      amount = amount.abs();
-    }
+    // Determine type based on amount sign and type field
+    const isSell = amount.isNegative() || typeStr === 'sell' || typeStr === 'withdrawal';
+    const isBuy = amount.isPositive() || typeStr === 'buy' || typeStr === 'deposit';
     
+    if (isSell) amount = amount.abs();
     if (amount.lte(0)) return null;
     
-    // In a real implementation, we'd need to pair with the USD row
-    // For now, we'll skip rows without USD value information
-    return null;
+    const type: 'BUY' | 'SELL' = isSell ? 'SELL' : 'BUY';
+    
+    // Try to get balance or fee to estimate USD value
+    const balanceStr = row['balance'] || row['Balance'] || '0';
+    const feeStr = row['fee'] || row['Fee'] || '0';
+    
+    // For trades, try to extract price from pair info
+    const pair = row['pair'] || row['Pair'] || '';
+    const priceStr = row['price'] || row['Price'] || '';
+    
+    let usdValue = new Decimal(0);
+    
+    // If price is available, use it
+    if (priceStr) {
+      const price = new Decimal(priceStr || '0');
+      if (!price.isNaN() && price.gt(0)) {
+        usdValue = amount.times(price);
+      }
+    }
+    
+    // Try cost field (Kraken trade history)
+    const costStr = row['cost'] || row['Cost'] || '';
+    if (costStr && usdValue.isZero()) {
+      const cost = new Decimal(costStr || '0');
+      if (!cost.isNaN() && cost.gt(0)) {
+        usdValue = cost.abs();
+      }
+    }
+    
+    // If still no USD value, skip this row
+    if (usdValue.isZero() || usdValue.isNaN()) return null;
+    
+    const price = usdValue.dividedBy(amount);
+    
+    return {
+      date,
+      type,
+      symbol,
+      amount,
+      price,
+      value: usdValue
+    };
   } catch (error) {
     console.error('Error parsing Kraken row:', error);
     return null;
@@ -570,6 +610,8 @@ const Calculator = () => {
   }, []);
 
   const processFile = (file: File) => {
+    setLoading(true);
+    
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -583,6 +625,7 @@ const Calculator = () => {
               description: "The CSV file appears to be empty.",
               variant: "destructive",
             });
+            setLoading(false);
             return;
           }
 
@@ -707,6 +750,7 @@ const Calculator = () => {
               description: `Could not parse any valid transactions from the ${exchangeName} CSV. Check the format.`,
               variant: "destructive",
             });
+            setLoading(false);
             return;
           }
 
@@ -738,6 +782,8 @@ const Calculator = () => {
             description: `Failed to process CSV: ${error instanceof Error ? error.message : 'Unknown error'}`,
             variant: "destructive",
           });
+        } finally {
+          setLoading(false);
         }
       },
       error: (error) => {
@@ -747,6 +793,7 @@ const Calculator = () => {
           description: "Failed to parse CSV file. Ensure it's a valid CSV.",
           variant: "destructive",
         });
+        setLoading(false);
       }
     });
   };
@@ -808,39 +855,168 @@ const Calculator = () => {
     }
 
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let yPos = 20;
     
-    doc.setFontSize(20);
-    doc.text('KryptoGain Tax Report', 20, yPos);
+    // Header with branding
+    doc.setFillColor(0, 0, 0);
+    doc.rect(0, 0, pageWidth, 45, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text('KryptoGain', 20, 25);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Cryptocurrency Tax Report', 20, 35);
+    
+    // Reset text color
+    doc.setTextColor(0, 0, 0);
+    yPos = 60;
+    
+    // Report info
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, yPos);
+    doc.text(`Jurisdiction: ${taxJurisdictions[jurisdiction].name}`, pageWidth - 20, yPos, { align: 'right' });
     yPos += 15;
+    
+    // Summary Box
+    doc.setFillColor(245, 245, 245);
+    doc.roundedRect(15, yPos, pageWidth - 30, 65, 3, 3, 'F');
+    yPos += 12;
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Financial Summary', 20, yPos);
+    yPos += 12;
+    
+    const netGains = totalShortTermGains.plus(totalLongTermGains);
+    const netAfterTax = netGains.minus(totalTax);
     
     doc.setFontSize(11);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Jurisdiction: ${taxJurisdictions[jurisdiction].name}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Total Taxable Events: ${taxableEvents.length}`, 20, yPos);
-    yPos += 15;
+    doc.setFont('helvetica', 'normal');
     
-    doc.setFontSize(14);
-    doc.text('Tax Summary', 20, yPos);
+    // Two column layout for summary
+    doc.text('Short-Term Gains:', 25, yPos);
+    doc.text(`$${totalShortTermGains.toFixed(2)}`, 100, yPos);
+    doc.text('Long-Term Gains:', 120, yPos);
+    doc.text(`$${totalLongTermGains.toFixed(2)}`, 185, yPos);
     yPos += 10;
     
-    doc.setFontSize(12);
-    doc.text(`Short-Term Gains: $${totalShortTermGains.toFixed(2)}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Long-Term Gains: $${totalLongTermGains.toFixed(2)}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Total Tax Owed: $${totalTax.toFixed(2)}`, 20, yPos);
-    yPos += 7;
-    const netGains = totalShortTermGains.plus(totalLongTermGains);
-    doc.text(`Net After Tax: $${netGains.minus(totalTax).toFixed(2)}`, 20, yPos);
+    doc.text('Total Gains:', 25, yPos);
+    doc.text(`$${netGains.toFixed(2)}`, 100, yPos);
+    doc.text('Tax Owed:', 120, yPos);
+    doc.setTextColor(200, 100, 0);
+    doc.text(`$${totalTax.toFixed(2)}`, 185, yPos);
+    yPos += 10;
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Net After Tax:', 25, yPos);
+    doc.setTextColor(netAfterTax.gte(0) ? 0 : 200, netAfterTax.gte(0) ? 150 : 0, 0);
+    doc.text(`$${netAfterTax.toFixed(2)}`, 100, yPos);
+    
+    yPos += 25;
+    
+    // Tax Breakdown Table
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Taxable Events', 20, yPos);
+    yPos += 8;
+    
+    // Table header
+    doc.setFillColor(0, 0, 0);
+    doc.rect(15, yPos, pageWidth - 30, 8, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    const headers = ['Date', 'Asset', 'Type', 'Amount', 'Cost', 'Price', 'P&L', 'Tax'];
+    const colWidths = [25, 18, 25, 25, 25, 25, 25, 20];
+    let xPos = 18;
+    headers.forEach((header, i) => {
+      doc.text(header, xPos, yPos + 5.5);
+      xPos += colWidths[i];
+    });
+    yPos += 10;
+    
+    // Table rows
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+    
+    const maxRowsPerPage = 25;
+    let rowCount = 0;
+    
+    for (const event of taxableEvents) {
+      if (rowCount > 0 && rowCount % maxRowsPerPage === 0) {
+        doc.addPage();
+        yPos = 20;
+        
+        // Add header to new page
+        doc.setFillColor(0, 0, 0);
+        doc.rect(15, yPos, pageWidth - 30, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        xPos = 18;
+        headers.forEach((header, i) => {
+          doc.text(header, xPos, yPos + 5.5);
+          xPos += colWidths[i];
+        });
+        yPos += 10;
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'normal');
+      }
+      
+      // Alternate row background
+      if (rowCount % 2 === 0) {
+        doc.setFillColor(250, 250, 250);
+        doc.rect(15, yPos - 1, pageWidth - 30, 7, 'F');
+      }
+      
+      xPos = 18;
+      doc.setFontSize(7);
+      doc.text(format(event.date, 'yyyy-MM-dd'), xPos, yPos + 4);
+      xPos += colWidths[0];
+      doc.text(event.symbol, xPos, yPos + 4);
+      xPos += colWidths[1];
+      doc.text(event.type === 'SHORT_TERM' ? 'Short' : 'Long', xPos, yPos + 4);
+      xPos += colWidths[2];
+      doc.text(event.sellAmount.toFixed(4), xPos, yPos + 4);
+      xPos += colWidths[3];
+      doc.text(`$${event.costBasis.toFixed(2)}`, xPos, yPos + 4);
+      xPos += colWidths[4];
+      doc.text(`$${event.sellPrice.toFixed(2)}`, xPos, yPos + 4);
+      xPos += colWidths[5];
+      
+      // Color code P&L
+      doc.setTextColor(event.pnl.gte(0) ? 0 : 200, event.pnl.gte(0) ? 150 : 0, 0);
+      doc.text(`$${event.pnl.toFixed(2)}`, xPos, yPos + 4);
+      xPos += colWidths[6];
+      
+      doc.setTextColor(200, 100, 0);
+      doc.text(`$${event.taxAmount.toFixed(2)}`, xPos, yPos + 4);
+      doc.setTextColor(0, 0, 0);
+      
+      yPos += 7;
+      rowCount++;
+    }
+    
+    // Footer on last page
+    yPos = pageHeight - 25;
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text('This report is for informational purposes only and does not constitute tax advice.', pageWidth / 2, yPos, { align: 'center' });
+    doc.text('Please consult a tax professional for official guidance.', pageWidth / 2, yPos + 5, { align: 'center' });
+    doc.text(`KryptoGain - Page ${doc.internal.pages.length - 1}`, pageWidth / 2, yPos + 12, { align: 'center' });
 
     doc.save(`kryptogain-tax-report-${Date.now()}.pdf`);
     
     toast({
       title: "PDF Generated!",
-      description: "Your tax report has been downloaded.",
+      description: "Your detailed tax report has been downloaded.",
     });
   };
 
@@ -859,7 +1035,7 @@ const Calculator = () => {
         <div className="flex items-center justify-between mb-8 sm:mb-12">
           <Button
             variant="ghost"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/terms')}
             className="gap-2 hover:bg-primary/10 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -926,19 +1102,29 @@ const Calculator = () => {
                   className="hidden"
                 />
                 <div className="p-12 text-center">
-                  <Upload className={cn(
-                    "h-12 w-12 mx-auto mb-4 transition-colors",
-                    dragActive ? "text-primary" : "text-muted-foreground"
-                  )} />
-                  <h3 className="font-semibold mb-2">
-                    {dragActive ? "Drop your CSV file here" : "Upload CSV File"}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Drag and drop or click to browse
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Supported exchanges: Coinbase, Binance, Kraken, Crypto.com, Gemini
-                  </p>
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-12 w-12 mx-auto mb-4 text-primary animate-spin" />
+                      <h3 className="font-semibold mb-2">Processing your file...</h3>
+                      <p className="text-sm text-muted-foreground">This may take a moment</p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className={cn(
+                        "h-12 w-12 mx-auto mb-4 transition-colors",
+                        dragActive ? "text-primary" : "text-muted-foreground"
+                      )} />
+                      <h3 className="font-semibold mb-2">
+                        {dragActive ? "Drop your CSV file here" : "Upload CSV File"}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Drag and drop or click to browse
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Supported exchanges: Coinbase, Binance, Kraken, Crypto.com, Gemini
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </TabsContent>
@@ -1125,6 +1311,28 @@ const Calculator = () => {
             )}
           </div>
         </Card>
+
+        {/* Footer */}
+        <footer className="mt-12 py-6 border-t border-border/50">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-muted-foreground">
+            <span>© {new Date().getFullYear()} KryptoGain</span>
+            <span className="hidden sm:inline">•</span>
+            <button onClick={() => navigate('/terms')} className="hover:text-primary transition-colors">
+              Terms of Service
+            </button>
+            <span className="hidden sm:inline">•</span>
+            <button onClick={() => navigate('/docs')} className="hover:text-primary transition-colors">
+              Documentation
+            </button>
+            <span className="hidden sm:inline">•</span>
+            <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">
+              Home
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground text-center mt-4 max-w-2xl mx-auto">
+            All outputs are automated estimates for personal use and do not constitute tax, legal, or financial advice.
+          </p>
+        </footer>
       </div>
     </div>
   );
