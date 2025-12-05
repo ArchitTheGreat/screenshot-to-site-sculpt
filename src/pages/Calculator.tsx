@@ -1317,7 +1317,7 @@ const Calculator = () => {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-muted-foreground">
             <span>© {new Date().getFullYear()} KryptoGain</span>
             <span className="hidden sm:inline">•</span>
-            <button onClick={() => navigate('/terms')} className="hover:text-primary transition-colors">
+            <button onClick={() => window.open('https://cdn.jsdelivr.net/gh/ArchitTheGreat/bug-free-happiness@main/ToS_Kryptogain.pdf', '_blank')} className="hover:text-primary transition-colors">
               Terms of Service
             </button>
             <span className="hidden sm:inline">•</span>
