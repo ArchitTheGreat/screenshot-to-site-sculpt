@@ -500,7 +500,6 @@ const parseGemini = (row: Record<string, any>): ParsedTransaction | null => {
 const Calculator = () => {
   const navigate = useNavigate();
   
-  const [hasPaid, setHasPaid] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
   const [taxableEvents, setTaxableEvents] = useState<TaxableEvent[]>([]);
   const [totalShortTermGains, setTotalShortTermGains] = useState<Decimal>(new Decimal(0));
@@ -1272,43 +1271,20 @@ const Calculator = () => {
 
             <div className="border-t border-border pt-6 space-y-4">
               <div className="rounded-lg bg-muted/50 p-4 space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="payment" 
-                    checked={hasPaid}
-                    onCheckedChange={(checked) => setHasPaid(checked as boolean)}
-                  />
-                  <Label 
-                    htmlFor="payment" 
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    I have paid $15
-                  </Label>
+                <div className="text-sm text-muted-foreground">
+                  This application is completely free to use. No payment required.
                 </div>
-
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 border-primary/20 hover:bg-primary/10"
-                  asChild
-                >
-                  <a href="https://nowpayments.io/payment/?iid=4583571841" target="_blank" rel="noopener noreferrer">
-                    Pay Now
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
-                </Button>
               </div>
             </div>
 
-            {hasPaid && (
-              <Button
-                size="lg"
-                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg"
-                disabled={taxableEvents.length === 0}
-                onClick={generatePDF}
-              >
-                Generate PDF Report
-              </Button>
-            )}
+            <Button
+              size="lg"
+              className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg"
+              disabled={taxableEvents.length === 0}
+              onClick={generatePDF}
+            >
+              Generate PDF Report
+            </Button>
           </div>
         </Card>
 
